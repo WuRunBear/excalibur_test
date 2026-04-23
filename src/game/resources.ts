@@ -4,12 +4,12 @@ import { ImageSource, Sound } from 'excalibur';
 import { TiledResource } from '@excaliburjs/plugin-tiled';
 
 // 使用 import 引入，Vite 会返回正确的 URL
-import playerPng from 'src/game/assets/sprites/player.png'; 
-import hitWav from 'src/game/assets/sfx/speak.mp3';
+import playerPng from 'game/assets/sprites/player.png';
+import speakWav from 'game/assets/sfx/speak.mp3';
 
 export const Resources = {
     Player: new ImageSource(playerPng),
-    HitSound: new Sound(hitWav)
+    speakSound: new Sound(speakWav)
 };
 
 export const ExternalResources = {
