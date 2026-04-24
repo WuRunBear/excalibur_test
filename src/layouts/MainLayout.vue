@@ -3,19 +3,12 @@
     <Header bordered :min-height="56"
       class="fixed inset-x-0 top-0 z-50 h-14 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
       <div class="mx-auto flex h-full w-full max-w-screen-2xl items-center gap-3 px-3 sm:px-4">
-        <Button variant="text" size="small" class="md:hidden" aria-label="打开侧边栏" @click="isMobileSidebarOpen = true">
-          <span class="text-lg leading-none">☰</span>
-        </Button>
-
-        <Button variant="text" size="small" class="hidden md:inline-flex" aria-label="切换侧边栏展开状态"
-          @click="toggleSidebarCollapsed">
-          <span class="text-lg leading-none">{{ isSidebarCollapsed ? '☰' : '⇤' }}</span>
-        </Button>
-
         <RouterLink to="/" aria-label="返回首页"
           class="flex items-center gap-2 rounded px-2 py-1 text-sm font-semibold tracking-wide hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300">
-          <span class="inline-flex h-8 w-8 items-center justify-center rounded bg-neutral-900 text-white">P</span>
-          <span class="hidden sm:inline">Pixelium App</span>
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded bg-neutral-900 text-white">
+            {{ appInfo.shortName }}
+          </span>
+          <span class="hidden sm:inline">{{ appInfo.BName }} V{{ appInfo.version }}</span>
         </RouterLink>
 
         <div class="flex-1"></div>
@@ -34,13 +27,8 @@
     </Header>
 
     <Container direction="horizontal" class="flex-1 pt-14">
-      <div v-if="isMobileSidebarOpen" class="fixed inset-0 z-40 bg-black/40 md:hidden" aria-label="关闭侧边栏遮罩"
-        @click="isMobileSidebarOpen = false"></div>
-
       <Aside bordered side="left" :width="sidebarWidth"
-        class="z-50 h-[calc(100vh-3.5rem)] bg-white transition-[width] duration-200 md:static md:z-auto" :class="[
-          isMobileSidebarOpen ? 'fixed left-0 top-14 md:top-0' : 'hidden md:block',
-        ]">
+        class="sticky top-14 z-10 h-[calc(100vh-3.5rem)] bg-white transition-[width] duration-200">
         <div class="flex h-full flex-col overflow-hidden">
           <div class="flex items-center justify-between gap-2 px-3 py-3">
             <div class="min-w-0">
@@ -52,10 +40,6 @@
             <Button variant="text" size="small" aria-label="切换侧边栏展开状态" class="hidden md:inline-flex"
               @click="toggleSidebarCollapsed">
               <span class="text-sm leading-none">{{ isSidebarCollapsed ? '⇥' : '⇤' }}</span>
-            </Button>
-            <Button variant="text" size="small" aria-label="关闭侧边栏" class="md:hidden"
-              @click="isMobileSidebarOpen = false">
-              <span class="text-sm leading-none">✕</span>
             </Button>
           </div>
 
@@ -72,15 +56,11 @@
       <Container direction="vertical" class="min-w-0 flex-1">
         <Main class="h-[calc(100vh-3.5rem)] overflow-hidden bg-neutral-50">
           <div class="flex h-full flex-col">
-            <div class="border-b border-neutral-200 bg-white px-4 py-3">
-              <Breadcrumb :options="breadcrumbOptions" aria-label="面包屑导航" @select="onBreadcrumbSelect" />
-            </div>
-
             <div class="flex-1 overflow-auto px-4 py-4" aria-label="主内容区">
               <RouterView />
             </div>
 
-            <Footer bordered class="bg-white px-4 py-3 text-xs text-neutral-500">
+            <Footer v-if="showFooter" bordered class="bg-white px-4 py-3 text-xs text-neutral-500">
               <div class="mx-auto w-full max-w-screen-2xl">
                 © {{ new Date().getFullYear() }} Pixelium App. All rights reserved.
               </div>
@@ -95,11 +75,13 @@
 <script setup lang="ts">
 defineOptions({ name: 'MainLayout' })
 
+import { appInfo } from '@/config/app'
+
 import type { MenuOption, SubmenuOption } from '@pixelium/web-vue/es'
 import type { RouteRecordRaw } from 'vue-router'
 import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
-import { Aside, Avatar, Breadcrumb, Button, Container, DropDown, Footer, Header, Main, Menu } from '@pixelium/web-vue/es'
+import { Aside, Avatar, Button, Container, DropDown, Footer, Header, Main, Menu } from '@pixelium/web-vue/es'
 
 const router = useRouter()
 const route = useRoute()
@@ -107,7 +89,8 @@ const route = useRoute()
 const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
 const isSidebarCollapsed = ref(false)
-const isMobileSidebarOpen = ref(false)
+
+const showFooter = computed(() => ((route.meta ?? {}) as Record<string, unknown>).showFooter === true)
 
 const sidebarWidth = computed(() => (isSidebarCollapsed.value ? '64px' : '256px'))
 
@@ -255,7 +238,6 @@ function onMenuSelect(index: string | number | symbol) {
   const target = String(index)
   if (menuIndexSets.value.leaf.has(target)) {
     router.push(target)
-    isMobileSidebarOpen.value = false
   }
 }
 
@@ -295,23 +277,6 @@ function onMenuKeydown(e: KeyboardEvent) {
     e.preventDefault()
     if (menuIndexSets.value.leaf.has(activeIndex.value)) router.push(activeIndex.value)
   }
-}
-
-const breadcrumbOptions = computed(() => {
-  const options = route.matched
-    .map((record) => {
-      const label = getRouteLabel(record)
-      const path = router.resolve(record.path).path
-      return { index: path, label, clickable: true }
-    })
-    .filter((item) => item.label && item.index)
-
-  if (options.length === 0) return [{ index: '/', label: '首页', clickable: true }]
-  return options
-})
-
-function onBreadcrumbSelect(index: string | number | symbol) {
-  router.push(String(index))
 }
 
 function clearToken() {

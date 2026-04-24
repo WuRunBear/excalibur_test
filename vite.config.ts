@@ -1,4 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
+import { readFileSync } from 'node:fs'
 
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
@@ -6,8 +7,45 @@ import vueJsx from '@vitejs/plugin-vue-jsx'
 import vueDevTools from 'vite-plugin-vue-devtools'
 import tailwindcss from '@tailwindcss/vite'
 
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8')) as {
+  name?: string
+  version?: string
+}
+
+function toShortName(value: string) {
+  const parts = value.split(/[^a-zA-Z0-9]+/g).filter(Boolean)
+  const raw = (parts.length > 0 ? parts : [value])
+    .map((p) => p[0])
+    .filter(Boolean)
+    .join('')
+    .toUpperCase()
+  return raw.slice(0, 4) || 'APP'
+}
+
+function toBName(value: string) {
+  const parts = value
+    .split(/[^a-zA-Z0-9]+/g)
+    .filter(Boolean)
+    .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    .join('')
+    .replace(/[^a-zA-Z0-9_]/g, '')
+
+  if (!parts) return 'App'
+  if (/^[0-9]/.test(parts)) return `App${parts}`
+  return parts
+}
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __APP_INFO__: JSON.stringify({
+      name: pkg.name ?? 'app',
+      shortName: toShortName(pkg.name ?? 'app'),
+      BName: toBName(pkg.name ?? 'app'),
+      version: pkg.version ?? '0.0.0',
+      buildTime: new Date().toISOString(),
+    }),
+  },
   plugins: [
     tailwindcss(),
     vue(),

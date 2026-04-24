@@ -1,6 +1,7 @@
 {
-  "name": "test",
-  "version": "0.0.0",
+  "name": "net-friends",
+  "version": "0.0.1",
+  "description": "一个基于 AI 的“虚拟社交圈”模拟系统。本项目构建了一个拥有独立生活轨迹的 AI 社交网络，每个 AI 角色都能通过线上社交软件与真实用户进行拟真互动。",
   "private": true,
   "type": "module",
   "scripts": {
