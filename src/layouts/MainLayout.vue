@@ -62,7 +62,7 @@
 
             <Footer v-if="showFooter" bordered class="bg-white px-4 py-3 text-xs text-neutral-500">
               <div class="mx-auto w-full max-w-screen-2xl">
-                © {{ new Date().getFullYear() }} Pixelium App. All rights reserved.
+                © {{ new Date().getFullYear() }} {{ appInfo.BName }} All rights reserved.
               </div>
             </Footer>
           </div>
@@ -77,11 +77,42 @@ defineOptions({ name: 'MainLayout' })
 
 import { appInfo } from '@/config/app'
 
-import type { MenuOption, SubmenuOption } from '@pixelium/web-vue/es'
+import type { MenuGroupOption, MenuOption, SubmenuOption } from '@pixelium/web-vue/es'
 import type { RouteRecordRaw } from 'vue-router'
-import { computed, ref, shallowRef, watch } from 'vue'
+import type { Component } from 'vue'
+import { computed, h, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import { Aside, Avatar, Button, Container, DropDown, Footer, Header, Main, Menu } from '@pixelium/web-vue/es'
+
+/**
+ * 业务路由 meta 的约定字段集合
+ * 用于在不污染 vue-router 原始类型的前提下，集中管理本项目会用到的 meta 字段
+ */
+type AppRouteMeta = {
+  title?: string
+  label?: string
+  hidden?: boolean
+  hideInMenu?: boolean
+  icon?: Component
+  activeMenu?: string
+  showFooter?: boolean
+}
+
+/**
+ * 菜单节点类型集合
+ * 兼容菜单项、子菜单、分组菜单（具体由组件库决定）
+ */
+type MenuNode = MenuOption | SubmenuOption | MenuGroupOption
+
+/**
+ * 菜单 children 可能混入字符串（例如分隔符/标题），需要在遍历时做兼容
+ */
+type MenuChild = string | MenuNode
+
+/**
+ * 菜单组件事件中 index 的类型
+ */
+type MenuIndex = string | number | symbol
 
 const router = useRouter()
 const route = useRoute()
@@ -90,11 +121,20 @@ const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
 const isSidebarCollapsed = ref(false)
 
-const showFooter = computed(() => ((route.meta ?? {}) as Record<string, unknown>).showFooter === true)
+/**
+ * 安全读取路由 meta，并在当前文件内统一收口类型转换
+ * @param meta vue-router 提供的原始 meta
+ * @returns 业务侧约定的 meta 字段对象
+ */
+function getRouteMeta(meta: RouteRecordRaw['meta'] | undefined): AppRouteMeta {
+  return (meta ?? {}) as AppRouteMeta
+}
+
+const showFooter = computed(() => getRouteMeta(route.meta).showFooter === true)
 
 const sidebarWidth = computed(() => (isSidebarCollapsed.value ? '64px' : '256px'))
 
-const userMenuOptions = shallowRef([
+const userMenuOptions = shallowRef<{ index: string; label: string }[]>([
   { index: 'profile', label: '个人中心' },
   { index: 'logout', label: '退出登录' },
 ])
@@ -121,6 +161,12 @@ function toggleSidebarCollapsed() {
   isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
+/**
+ * 将子路由 path 规范化为可用于 router.push 的绝对路径
+ * @param basePath 父级路径（通常为布局路由路径）
+ * @param path 子路由的 path（可能为空/相对/绝对）
+ * @returns 规范化后的绝对路径
+ */
 function normalizePath(basePath: string, path: string) {
   const cleanBase = basePath.replace(/\/+$/, '')
   if (path === '') return cleanBase || '/'
@@ -129,23 +175,52 @@ function normalizePath(basePath: string, path: string) {
   return `${cleanBase}/${path}`.replace(/\/+/g, '/')
 }
 
+/**
+ * 从路由记录中提取用于菜单显示的名称
+ * 优先级：meta.title/meta.label -> record.name -> record.path
+ * @param record 路由记录
+ * @returns 可展示的文本
+ */
 function getRouteLabel(record: RouteRecordRaw) {
-  const meta = (record.meta ?? {}) as Record<string, unknown>
-  const fromMeta = (meta.title ?? meta.label) as string | undefined
+  const meta = getRouteMeta(record.meta)
+  const fromMeta = meta.title ?? meta.label
   if (fromMeta && fromMeta.trim()) return fromMeta
   if (typeof record.name === 'string' && record.name.trim()) return record.name
   return record.path || '未命名'
 }
 
+/**
+ * 判断路由记录是否需要展示在侧边栏菜单中
+ * @param record 路由记录
+ * @returns 是否展示
+ */
 function shouldShowInMenu(record: RouteRecordRaw) {
-  const meta = (record.meta ?? {}) as Record<string, unknown>
+  const meta = getRouteMeta(record.meta)
   if (meta.hidden === true) return false
   if (meta.hideInMenu === true) return false
   return true
 }
 
-function buildMenuOptions(records: RouteRecordRaw[], basePath: string): (MenuOption | SubmenuOption)[] {
-  const result: (MenuOption | SubmenuOption)[] = []
+/**
+ * 从路由 meta 中构造菜单图标渲染函数
+ * @param record 路由记录
+ * @returns 菜单组件可识别的 icon 渲染函数
+ */
+function getRouteIcon(record: RouteRecordRaw): MenuOption['icon'] | undefined {
+  const meta = getRouteMeta(record.meta)
+  const icon = meta.icon
+  if (!icon) return undefined
+  return (() => h(icon, { size: 16 })) as unknown as MenuOption['icon']
+}
+
+/**
+ * 根据路由树递归构建菜单 options
+ * @param records 路由记录列表
+ * @param basePath 当前层级的基准路径
+ * @returns 菜单 options
+ */
+function buildMenuOptions(records: RouteRecordRaw[], basePath: string): MenuNode[] {
+  const result: MenuNode[] = []
 
   for (const record of records) {
     if (!shouldShowInMenu(record)) continue
@@ -153,46 +228,85 @@ function buildMenuOptions(records: RouteRecordRaw[], basePath: string): (MenuOpt
     const fullPath = normalizePath(basePath, record.path)
     const children = Array.isArray(record.children) ? record.children : []
     const label = getRouteLabel(record)
+    const icon = getRouteIcon(record)
 
     if (children.length > 0) {
-      result.push({
+      const option: SubmenuOption = {
         type: 'submenu',
         index: fullPath,
         label,
         children: buildMenuOptions(children, fullPath),
-      })
+      }
+      if (icon) option.icon = icon
+      result.push(option)
       continue
     }
 
-    result.push({ index: fullPath, label })
+    const option: MenuOption = { index: fullPath, label }
+    if (icon) option.icon = icon
+    result.push(option)
   }
 
   return result
 }
 
+/**
+ * 从 router 配置中定位布局路由（/index）并取其 children 作为菜单根节点
+ * @returns 菜单基准路径与菜单根路由列表
+ */
 function findLayoutMenuRootRoutes() {
-  const rootRoutes = ((router as unknown as { options?: { routes?: RouteRecordRaw[] } }).options?.routes ?? []) as RouteRecordRaw[]
+  const routerWithOptions = router as unknown as { options?: { routes?: RouteRecordRaw[] } }
+  const rootRoutes = routerWithOptions.options?.routes ?? []
   const layout = rootRoutes.find((r) => r.path === '/index')
   const children = layout?.children ?? []
   return { basePath: layout?.path ?? '/', routes: children }
 }
 
 const { basePath: menuBasePath, routes: menuRootRoutes } = findLayoutMenuRootRoutes()
-const menuOptions = shallowRef<(MenuOption | SubmenuOption)[]>(buildMenuOptions(menuRootRoutes, menuBasePath))
+const menuOptions = shallowRef<MenuNode[]>(buildMenuOptions(menuRootRoutes, menuBasePath))
 
-function collectMenuIndices(options: (MenuOption | SubmenuOption)[]) {
+/**
+ * 判断当前节点是否为子菜单（submenu）
+ * @param option 菜单节点
+ * @returns 是否为 SubmenuOption
+ */
+function isSubmenuOption(option: MenuNode): option is SubmenuOption {
+  return 'type' in option && option.type === 'submenu'
+}
+
+/**
+ * 判断当前节点是否为分组菜单（group）
+ * @param option 菜单节点
+ * @returns 是否为 MenuGroupOption
+ */
+function isGroupOption(option: MenuNode): option is MenuGroupOption {
+  return 'type' in option && option.type === 'group'
+}
+
+/**
+ * 收集菜单中的叶子节点与子菜单节点索引
+ * 用于：判断菜单选中项、展开项、键盘上下移动的可选列表
+ * @param options 菜单 options（可能包含 string 子项）
+ * @returns 叶子节点索引集合与子菜单索引集合
+ */
+function collectMenuIndices(options: MenuChild[]) {
   const leaf = new Set<string>()
   const submenu = new Set<string>()
 
-  const walk = (items: (MenuOption | SubmenuOption)[]) => {
+  const walk = (items: MenuChild[]) => {
     for (const item of items) {
-      const idx = String(item.index)
-      if ('children' in item) {
-        submenu.add(idx)
-        walk(item.children as (MenuOption | SubmenuOption)[])
-      } else {
-        leaf.add(idx)
+      if (typeof item === 'string') continue
+      if (isGroupOption(item)) {
+        walk(item.children)
+        continue
       }
+      const idx = String(item.index)
+      if (isSubmenuOption(item)) {
+        submenu.add(idx)
+        walk(item.children)
+        continue
+      }
+      leaf.add(idx)
     }
   }
 
@@ -204,11 +318,15 @@ const menuIndexSets = computed(() => collectMenuIndices(menuOptions.value))
 const leafIndices = computed(() => Array.from(menuIndexSets.value.leaf))
 
 const activeIndex = ref<string>(route.path)
-const expandedIndices = ref<(string | number | symbol)[]>([])
+const expandedIndices = ref<string[]>([])
 
+/**
+ * 将路由状态同步到菜单：选中项与展开项
+ * 支持通过 meta.activeMenu 强制指定选中菜单（用于详情页高亮父级菜单等场景）
+ */
 function syncActiveAndExpanded() {
-  const meta = (route.meta ?? {}) as Record<string, unknown>
-  const forcedActive = meta.activeMenu as string | undefined
+  const meta = getRouteMeta(route.meta)
+  const forcedActive = meta.activeMenu
   const candidate = forcedActive || route.path
 
   if (menuIndexSets.value.leaf.has(candidate)) {
@@ -234,21 +352,37 @@ watch(
   { immediate: true },
 )
 
-function onMenuSelect(index: string | number | symbol) {
+/**
+ * 点击菜单叶子节点时导航
+ * @param index 菜单索引
+ */
+function onMenuSelect(index: MenuIndex) {
   const target = String(index)
   if (menuIndexSets.value.leaf.has(target)) {
     router.push(target)
   }
 }
 
-function onMenuActiveUpdate(value: string | number | symbol) {
+/**
+ * 菜单组件更新 active 时同步到本地状态
+ * @param value 菜单索引
+ */
+function onMenuActiveUpdate(value: MenuIndex) {
   activeIndex.value = String(value)
 }
 
-function onMenuExpandedUpdate(value: (string | number | symbol)[]) {
-  expandedIndices.value = value
+/**
+ * 菜单组件更新 expanded 时同步到本地状态
+ * @param value 展开的菜单索引列表
+ */
+function onMenuExpandedUpdate(value: MenuIndex[]) {
+  expandedIndices.value = value.map(String)
 }
 
+/**
+ * 侧边栏键盘导航：上下箭头切换选中项，回车触发导航
+ * @param e 键盘事件
+ */
 function onMenuKeydown(e: KeyboardEvent) {
   const keys = leafIndices.value
   if (keys.length === 0) return
@@ -279,6 +413,9 @@ function onMenuKeydown(e: KeyboardEvent) {
   }
 }
 
+/**
+ * 清理本地保存的 token
+ */
 function clearToken() {
   localStorage.removeItem('token')
   localStorage.removeItem('access_token')
@@ -288,6 +425,10 @@ function clearToken() {
   sessionStorage.removeItem('refresh_token')
 }
 
+/**
+ * 用户菜单点击处理
+ * @param index 菜单索引
+ */
 function onUserMenuSelect(index: string | number | symbol) {
   const key = String(index)
   if (key === 'profile') {
