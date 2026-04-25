@@ -1,6 +1,7 @@
 import { Engine } from "excalibur";
 import { config } from "./config"
 import { sceneList } from "./scenes";
+import { loader } from "./resources";
 
 export class MyGame extends Engine {
     constructor(canvasElement: HTMLCanvasElement) {
@@ -21,9 +22,9 @@ export class MyGame extends Engine {
         }
 
         // 2. 启动引擎并加载资源
-        // return super.start(loader);
+        await super.start(loader);
     }
-    
+
     // 可以在这里封装一些全局方法
     public pauseGame() {
         this.stop();

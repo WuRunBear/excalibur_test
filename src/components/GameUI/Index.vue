@@ -1,6 +1,8 @@
 <template>
-  <div class="w-screen h-screen flex items-center justify-center">
-    游戏UI
-    <slot name="content" class="w-full h-full fixed top-0 left-0"></slot>
+  <div class="relative inline-block">
+    <slot name="content" :slotClass="['block', 'relative', 'z-0']"></slot>
+    <div class="absolute inset-0 z-[1]">
+      游戏UI
+    </div>
   </div>
 </template>
