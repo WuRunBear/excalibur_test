@@ -17,7 +17,10 @@
             <span>{{ questProgress }}/{{ questGoal }}</span>
           </div>
           <div class="mt-1 h-2 w-full overflow-hidden rounded bg-neutral-200">
-            <div class="h-full bg-emerald-500 transition-[width] duration-200" :style="{ width: questPercent + '%' }"></div>
+            <div
+              class="h-full bg-emerald-500 transition-[width] duration-200"
+              :style="{ width: questPercent + '%' }"
+            ></div>
           </div>
         </div>
       </div>

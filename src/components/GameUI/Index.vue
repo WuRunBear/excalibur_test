@@ -4,12 +4,30 @@
 
     <div class="absolute inset-0 z-[1] pointer-events-none">
       <div class="absolute left-3 top-3 flex items-start gap-3 pointer-events-auto">
-        <PlayerStatusPanel :player-name="playerName" :zone="zone" :level="level" :hp="hp" :hp-max="hpMax" :mp="mp"
-          :mp-max="mpMax" :coins="coins" />
+        <PlayerStatusPanel
+          :player-name="playerName"
+          :zone="zone"
+          :level="level"
+          :hp="hp"
+          :hp-max="hpMax"
+          :mp="mp"
+          :mp-max="mpMax"
+          :coins="coins"
+        />
 
-        <ControlPanel :is-paused="isPaused" :show-debug="showDebug" :fps="fps" :position="position" :facing="facing"
-          :active-quest="activeQuest" @togglePause="togglePause" @reset="resetDemoState"
-          @openSettings="showSettings = true" @toggleDebug="showDebug = !showDebug" @clearMessages="messages = []" />
+        <ControlPanel
+          :is-paused="isPaused"
+          :show-debug="showDebug"
+          :fps="fps"
+          :position="position"
+          :facing="facing"
+          :active-quest="activeQuest"
+          @togglePause="togglePause"
+          @reset="resetDemoState"
+          @openSettings="showSettings = true"
+          @toggleDebug="showDebug = !showDebug"
+          @clearMessages="messages = []"
+        />
       </div>
 
       <div class="absolute right-3 top-3 grid gap-2 pointer-events-auto">
@@ -17,20 +35,43 @@
         <MessagePanel :messages="messages" @add="pushMessage" />
       </div>
 
-      <ActionBar :show-quest-panel="showQuestPanel" :show-mini-map="showMiniMap" @dealDamage="dealDamage" @heal="heal"
-        @spendMana="spendMana" @recoverMana="recoverMana" @earnCoins="earnCoins" @toggleQuestPanel="toggleQuestPanel"
-        @toggleMiniMap="toggleMiniMap" />
+      <ActionBar
+        :show-quest-panel="showQuestPanel"
+        :show-mini-map="showMiniMap"
+        @dealDamage="dealDamage"
+        @heal="heal"
+        @spendMana="spendMana"
+        @recoverMana="recoverMana"
+        @earnCoins="earnCoins"
+        @toggleQuestPanel="toggleQuestPanel"
+        @toggleMiniMap="toggleMiniMap"
+      />
 
       <MiniMapPanel v-if="showMiniMap" @close="toggleMiniMap" />
 
-      <QuestPanel v-if="showQuestPanel" :active-quest="activeQuest" :quest-desc="questDesc"
-        :quest-progress="questProgress" :quest-goal="questGoal" :quest-percent="questPercent" @close="toggleQuestPanel"
-        @advance="advanceQuest" @complete="completeQuest" />
+      <QuestPanel
+        v-if="showQuestPanel"
+        :active-quest="activeQuest"
+        :quest-desc="questDesc"
+        :quest-progress="questProgress"
+        :quest-goal="questGoal"
+        :quest-percent="questPercent"
+        @close="toggleQuestPanel"
+        @advance="advanceQuest"
+        @complete="completeQuest"
+      />
 
-      <SettingsModal v-if="showSettings" :graphics-quality="graphicsQuality"
-        :graphics-quality-label="graphicsQualityLabel" :volume="volume" @close="showSettings = false"
-        @reset="resetSettings" @save="showSettings = false" @updateQuality="graphicsQuality = $event"
-        @updateVolume="volume = $event" />
+      <SettingsModal
+        v-if="showSettings"
+        :graphics-quality="graphicsQuality"
+        :graphics-quality-label="graphicsQualityLabel"
+        :volume="volume"
+        @close="showSettings = false"
+        @reset="resetSettings"
+        @save="showSettings = false"
+        @updateQuality="graphicsQuality = $event"
+        @updateVolume="volume = $event"
+      />
     </div>
   </div>
 </template>
@@ -83,7 +124,9 @@ const graphicsQualityLabel = computed(() => {
   return '高'
 })
 
-const questPercent = computed(() => Math.max(0, Math.min(100, (questProgress.value / questGoal) * 100)))
+const questPercent = computed(() =>
+  Math.max(0, Math.min(100, (questProgress.value / questGoal) * 100)),
+)
 
 const messages = ref<{ id: string; text: string }[]>([])
 let msgId = 0

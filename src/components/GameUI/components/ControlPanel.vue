@@ -10,12 +10,20 @@
         {{ isPaused ? '已暂停' : '暂停' }}
       </Button>
       <Button size="small" variant="text" @click="$emit('reset')">重置</Button>
-      <DropDown :options="moreOptions" trigger="click" placement="bottom-start" @select="onMoreSelect">
+      <DropDown
+        :options="moreOptions"
+        trigger="click"
+        placement="bottom-start"
+        @select="onMoreSelect"
+      >
         <Button size="small" variant="text" aria-label="更多">更多 ▾</Button>
       </DropDown>
     </div>
 
-    <div v-if="showDebug" class="mt-2 w-72 rounded-md bg-neutral-900/90 px-3 py-2 text-[11px] text-neutral-100">
+    <div
+      v-if="showDebug"
+      class="mt-2 w-72 rounded-md bg-neutral-900/90 px-3 py-2 text-[11px] text-neutral-100"
+    >
       <div class="flex items-center justify-between">
         <span>调试面板</span>
         <span class="text-neutral-300">FPS: {{ fps }}</span>

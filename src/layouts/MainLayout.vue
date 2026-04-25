@@ -1,11 +1,19 @@
 <template>
   <Container direction="vertical" class="min-h-screen bg-neutral-50 text-neutral-900">
-    <Header bordered :min-height="56"
-      class="fixed inset-x-0 top-0 z-50 h-14 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+    <Header
+      bordered
+      :min-height="56"
+      class="fixed inset-x-0 top-0 z-50 h-14 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70"
+    >
       <div class="mx-auto flex h-full w-full max-w-screen-2xl items-center gap-3 px-3 sm:px-4">
-        <RouterLink to="/" aria-label="返回首页"
-          class="flex items-center gap-2 rounded px-2 py-1 text-sm font-semibold tracking-wide hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300">
-          <span class="inline-flex h-8 w-8 items-center justify-center rounded bg-neutral-900 text-white">
+        <RouterLink
+          to="/"
+          aria-label="返回首页"
+          class="flex items-center gap-2 rounded px-2 py-1 text-sm font-semibold tracking-wide hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"
+        >
+          <span
+            class="inline-flex h-8 w-8 items-center justify-center rounded bg-neutral-900 text-white"
+          >
             {{ appInfo.shortName }}
           </span>
           <span class="hidden sm:inline">{{ appInfo.BName }} V{{ appInfo.version }}</span>
@@ -13,9 +21,19 @@
 
         <div class="flex-1"></div>
 
-        <DropDown :options="userMenuOptions" trigger="click" placement="bottom-end" aria-label="用户下拉菜单"
-          @select="onUserMenuSelect">
-          <Button variant="text" size="small" aria-label="打开用户菜单" class="inline-flex items-center gap-2">
+        <DropDown
+          :options="userMenuOptions"
+          trigger="click"
+          placement="bottom-end"
+          aria-label="用户下拉菜单"
+          @select="onUserMenuSelect"
+        >
+          <Button
+            variant="text"
+            size="small"
+            aria-label="打开用户菜单"
+            class="inline-flex items-center gap-2"
+          >
             <Avatar bordered :size="28" aria-label="用户头像">
               <span class="text-xs font-semibold">U</span>
             </Avatar>
@@ -27,28 +45,52 @@
     </Header>
 
     <Container direction="horizontal" class="flex-1 pt-14">
-      <Aside bordered side="left" :width="sidebarWidth"
-        class="sticky top-14 z-10 h-[calc(100vh-3.5rem)] bg-white transition-[width] duration-200">
+      <Aside
+        bordered
+        side="left"
+        :width="sidebarWidth"
+        class="sticky top-14 z-10 h-[calc(100vh-3.5rem)] bg-white transition-[width] duration-200"
+      >
         <div class="flex h-full flex-col overflow-hidden">
           <div class="flex items-center justify-between gap-2 px-3 py-3">
             <div class="min-w-0">
-              <div class="truncate text-xs font-semibold text-neutral-600"
-                :aria-label="isSidebarCollapsed ? '菜单' : '主菜单'">
+              <div
+                class="truncate text-xs font-semibold text-neutral-600"
+                :aria-label="isSidebarCollapsed ? '菜单' : '主菜单'"
+              >
                 {{ isSidebarCollapsed ? '菜单' : '主菜单' }}
               </div>
             </div>
-            <Button variant="text" size="small" aria-label="切换侧边栏展开状态" class="hidden md:inline-flex"
-              @click="toggleSidebarCollapsed">
+            <Button
+              variant="text"
+              size="small"
+              aria-label="切换侧边栏展开状态"
+              class="hidden md:inline-flex"
+              @click="toggleSidebarCollapsed"
+            >
               <span class="text-sm leading-none">{{ isSidebarCollapsed ? '⇥' : '⇤' }}</span>
             </Button>
           </div>
 
-          <div class="flex-1 overflow-auto px-2 pb-3 outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"
-            tabindex="0" aria-label="侧边栏菜单" @keydown="onMenuKeydown">
-            <Menu v-memo="[menuOptions, activeIndex, expandedIndices, isSidebarCollapsed]" direction="vertical"
-              :collapsed="isSidebarCollapsed" :submenuMode="isSidebarCollapsed ? 'popover' : 'inline'"
-              submenuTrigger="click" :options="menuOptions" :active="activeIndex" :expanded="expandedIndices"
-              @select="onMenuSelect" @update:active="onMenuActiveUpdate" @update:expend="onMenuExpandedUpdate" />
+          <div
+            class="flex-1 overflow-auto px-2 pb-3 outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"
+            tabindex="0"
+            aria-label="侧边栏菜单"
+            @keydown="onMenuKeydown"
+          >
+            <Menu
+              v-memo="[menuOptions, activeIndex, expandedIndices, isSidebarCollapsed]"
+              direction="vertical"
+              :collapsed="isSidebarCollapsed"
+              :submenuMode="isSidebarCollapsed ? 'popover' : 'inline'"
+              submenuTrigger="click"
+              :options="menuOptions"
+              :active="activeIndex"
+              :expanded="expandedIndices"
+              @select="onMenuSelect"
+              @update:active="onMenuActiveUpdate"
+              @update:expend="onMenuExpandedUpdate"
+            />
           </div>
         </div>
       </Aside>
@@ -82,7 +124,17 @@ import type { RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
 import { computed, h, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
-import { Aside, Avatar, Button, Container, DropDown, Footer, Header, Main, Menu } from '@pixelium/web-vue/es'
+import {
+  Aside,
+  Avatar,
+  Button,
+  Container,
+  DropDown,
+  Footer,
+  Header,
+  Main,
+  Menu,
+} from '@pixelium/web-vue/es'
 
 /**
  * 业务路由 meta 的约定字段集合

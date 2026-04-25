@@ -17,7 +17,10 @@
           <span>{{ hp }}/{{ hpMax }}</span>
         </div>
         <div class="mt-1 h-2 w-56 overflow-hidden rounded bg-neutral-200">
-          <div class="h-full bg-rose-500 transition-[width] duration-200" :style="{ width: hpPercent + '%' }"></div>
+          <div
+            class="h-full bg-rose-500 transition-[width] duration-200"
+            :style="{ width: hpPercent + '%' }"
+          ></div>
         </div>
       </div>
 
@@ -27,7 +30,10 @@
           <span>{{ mp }}/{{ mpMax }}</span>
         </div>
         <div class="mt-1 h-2 w-56 overflow-hidden rounded bg-neutral-200">
-          <div class="h-full bg-sky-500 transition-[width] duration-200" :style="{ width: mpPercent + '%' }"></div>
+          <div
+            class="h-full bg-sky-500 transition-[width] duration-200"
+            :style="{ width: mpPercent + '%' }"
+          ></div>
         </div>
       </div>
 

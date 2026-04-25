@@ -1,7 +1,7 @@
-import { main } from "./main";
+import { main } from './main'
 
 export const sceneList = {
-    main: main
+  main: main,
 }
 
 export type sceneName = keyof typeof sceneList

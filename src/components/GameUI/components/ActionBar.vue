@@ -1,5 +1,7 @@
 <template>
-  <div class="absolute bottom-3 left-1/2 w-[min(720px,calc(100%-1.5rem))] -translate-x-1/2 pointer-events-auto">
+  <div
+    class="absolute bottom-3 left-1/2 w-[min(720px,calc(100%-1.5rem))] -translate-x-1/2 pointer-events-auto"
+  >
     <div class="rounded-lg border border-neutral-200 bg-white/85 px-3 py-3 shadow-sm backdrop-blur">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center gap-2">

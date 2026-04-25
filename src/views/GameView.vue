@@ -9,16 +9,16 @@
 </template>
 
 <script setup lang="ts">
-import { initGame } from 'game/index';
-import { onMounted } from 'vue';
-import GameUI from 'components/GameUI/Index.vue';
-import { ref } from 'vue';
+import { initGame } from 'game/index'
+import { onMounted } from 'vue'
+import GameUI from 'components/GameUI/Index.vue'
+import { ref } from 'vue'
 
-const gameCanvas = ref<HTMLCanvasElement | null>(null);
+const gameCanvas = ref<HTMLCanvasElement | null>(null)
 
 onMounted(() => {
   if (gameCanvas.value) {
-    initGame(gameCanvas.value);
+    initGame(gameCanvas.value)
   }
 })
 </script>

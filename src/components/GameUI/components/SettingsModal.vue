@@ -1,6 +1,8 @@
 <template>
   <div class="absolute inset-0 grid place-items-center bg-black/40 pointer-events-auto">
-    <div class="w-[min(520px,calc(100%-2rem))] rounded-xl border border-neutral-200 bg-white p-4 shadow-lg">
+    <div
+      class="w-[min(520px,calc(100%-2rem))] rounded-xl border border-neutral-200 bg-white p-4 shadow-lg"
+    >
       <div class="flex items-center justify-between">
         <div class="text-sm font-semibold text-neutral-900">设置（测试）</div>
         <Button size="small" variant="text" @click="$emit('close')">关闭</Button>
@@ -16,7 +18,9 @@
             <Button
               size="small"
               variant="text"
-              :class="graphicsQuality === 'low' ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''"
+              :class="
+                graphicsQuality === 'low' ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''
+              "
               @click="$emit('updateQuality', 'low')"
             >
               低
@@ -24,7 +28,9 @@
             <Button
               size="small"
               variant="text"
-              :class="graphicsQuality === 'medium' ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''"
+              :class="
+                graphicsQuality === 'medium' ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''
+              "
               @click="$emit('updateQuality', 'medium')"
             >
               中
@@ -32,7 +38,9 @@
             <Button
               size="small"
               variant="text"
-              :class="graphicsQuality === 'high' ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''"
+              :class="
+                graphicsQuality === 'high' ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''
+              "
               @click="$emit('updateQuality', 'high')"
             >
               高
@@ -45,7 +53,14 @@
             <div class="text-xs font-semibold text-neutral-700">主音量</div>
             <div class="text-xs text-neutral-600">{{ volume }}%</div>
           </div>
-          <input :value="volume" type="range" min="0" max="100" class="mt-2 w-full" @input="onVolumeInput" />
+          <input
+            :value="volume"
+            type="range"
+            min="0"
+            max="100"
+            class="mt-2 w-full"
+            @input="onVolumeInput"
+          />
         </div>
       </div>
 
