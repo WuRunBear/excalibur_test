@@ -1,6 +1,6 @@
 <template>
   <div class="w-screen h-screen flex items-center justify-center">
-    <GameUI>
+    <GameUI :bridge="bridge">
       <template #content="{ slotClass }">
         <canvas ref="gameCanvas" id="gameCanvas" :class="slotClass"></canvas>
       </template>
@@ -9,16 +9,23 @@
 </template>
 
 <script setup lang="ts">
-import { initGame } from 'game/index'
-import { onMounted } from 'vue'
+import type { GameBridge } from 'game/type'
+import { destroyGame, initGame } from 'game/index'
+import { onMounted, onUnmounted, ref } from 'vue'
 import GameUI from 'components/GameUI/Index.vue'
-import { ref } from 'vue'
 
 const gameCanvas = ref<HTMLCanvasElement | null>(null)
+const bridge = ref<GameBridge | undefined>(undefined)
 
-onMounted(() => {
+onMounted(async () => {
   if (gameCanvas.value) {
-    initGame(gameCanvas.value)
+    const controller = await initGame(gameCanvas.value)
+    bridge.value = controller.bridge
   }
+})
+
+onUnmounted(() => {
+  bridge.value = undefined
+  destroyGame()
 })
 </script>

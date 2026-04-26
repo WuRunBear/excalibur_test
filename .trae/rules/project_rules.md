@@ -99,7 +99,7 @@
 - TS 模块：
   - 文件名：lowerCamelCase（现状多为小写单词，如 `resources.ts`、`player.ts`）
   - 类型：PascalCase（`Config`）
-  - 常量：camelCase 或 SCREAMING\_SNAKE\_CASE（二选一，单文件内保持一致）
+  - 常量：camelCase 或 SCREAMING_SNAKE_CASE（二选一，单文件内保持一致）
 - 路由：
   - `name`：PascalCase
   - `path`：kebab-case（`/game`、`/index`）
@@ -115,6 +115,23 @@
   - 明确的函数入口（例如 `initGame(canvas)`）
   - 明确的数据结构（类型定义集中在相应域内）
   - 明确的事件/回调（由调用方注入）
+
+### 6.1 游戏 ↔ UI 桥接层（强制）
+
+- 目标：让 UI 与游戏引擎解耦，UI 只面向“状态 + 指令 + 事件”，不直接触碰引擎对象（Engine/Scene/Actor）。
+- 位置约定：
+  - 协议类型：`src/game/type.ts`（`GameBridge`/`GameUIState`/`GameUIEvent`/`GameCommand`）
+  - 纯实现：`src/game/bridge.ts`（`createGameBridge`，不依赖 Vue/Pinia）
+  - 游戏对外入口：`src/game/index.ts`（`initGame` 返回 `GameController`，并提供 `destroyGame`）
+- UI 侧接入规则：
+  - `views/GameView.vue` 只负责初始化与销毁：初始化后把 `bridge` 作为 props 传给 UI 组件；卸载时必须销毁（避免路由切换/热更新资源泄漏）。
+  - `components/GameUI/*` 只通过 `bridge.subscribe(...)` 接收事件、通过 `bridge.dispatch(...)` 下发指令；禁止 import `MyGame` 或依赖 `Engine`。
+- 事件与指令规则：
+  - 事件必须是带 `type` 的联合类型（例如 `state`/`message`），便于扩展与稳定演进。
+  - 指令必须是带 `type` 的联合类型（例如 `togglePause`/`dealDamage`），UI 侧不直接修改游戏状态。
+- 状态推送规则：
+  - 游戏侧可以对 state 推送做节流（例如 100ms 一次），避免每帧触发 UI 大量渲染。
+  - UI 侧订阅后应立即收到一次 state，用于首屏渲染与断线重连式初始化。
 
 ## 7. API 设计模式（前端/模块 API）
 

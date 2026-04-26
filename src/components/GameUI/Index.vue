@@ -79,7 +79,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'GameUI' })
 
-import { computed, ref } from 'vue'
+import type { GameBridge, GameUIEvent } from 'game/type'
+import { computed, ref, watchEffect } from 'vue'
 import ActionBar from './components/ActionBar.vue'
 import ControlPanel from './components/ControlPanel.vue'
 import MessagePanel from './components/MessagePanel.vue'
@@ -89,12 +90,16 @@ import QuestPanel from './components/QuestPanel.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import TipsPanel from './components/TipsPanel.vue'
 
+const props = defineProps<{
+  bridge?: GameBridge
+}>()
+
 const playerName = ref('测试玩家')
 const zone = ref('新手村')
 const level = ref(7)
 
-const hpMax = 100
-const mpMax = 80
+const hpMax = ref(100)
+const mpMax = ref(80)
 
 const hp = ref(86)
 const mp = ref(52)
@@ -131,7 +136,39 @@ const questPercent = computed(() =>
 const messages = ref<{ id: string; text: string }[]>([])
 let msgId = 0
 
+function applyGameEvent(event: GameUIEvent) {
+  if (event.type === 'message') {
+    pushMessage(event.text)
+    return
+  }
+
+  const state = event.state
+  fps.value = state.fps
+  isPaused.value = state.isPaused
+  position.value = { x: Math.round(state.player.x), y: Math.round(state.player.y) }
+  facing.value = state.player.facing
+
+  playerName.value = state.stats.name
+  zone.value = state.stats.zone
+  level.value = state.stats.level
+  hpMax.value = state.stats.hpMax
+  mpMax.value = state.stats.mpMax
+  hp.value = state.stats.hp
+  mp.value = state.stats.mp
+  coins.value = state.stats.coins
+}
+
+watchEffect((onCleanup) => {
+  if (!props.bridge) return
+  const unsubscribe = props.bridge.subscribe(applyGameEvent)
+  onCleanup(() => unsubscribe())
+})
+
 function togglePause() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'togglePause' })
+    return
+  }
   isPaused.value = !isPaused.value
 }
 
@@ -144,10 +181,14 @@ function toggleQuestPanel() {
 }
 
 function resetDemoState() {
-  hp.value = 86
-  mp.value = 52
-  coins.value = 128
-  isPaused.value = false
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'reset' })
+  } else {
+    hp.value = 86
+    mp.value = 52
+    coins.value = 128
+    isPaused.value = false
+  }
   showMiniMap.value = true
   showQuestPanel.value = false
   showSettings.value = false
@@ -162,30 +203,50 @@ function clamp(n: number, min: number, max: number) {
 }
 
 function dealDamage() {
-  hp.value = clamp(hp.value - 12, 0, hpMax)
-  pushMessage(`受到伤害 -12，生命剩余 ${hp.value}/${hpMax}`)
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'dealDamage', amount: 12 })
+    return
+  }
+  hp.value = clamp(hp.value - 12, 0, hpMax.value)
+  pushMessage(`受到伤害 -12，生命剩余 ${hp.value}/${hpMax.value}`)
 }
 
 function heal() {
-  hp.value = clamp(hp.value + 15, 0, hpMax)
-  pushMessage(`使用治疗 +15，生命变为 ${hp.value}/${hpMax}`)
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'heal', amount: 15 })
+    return
+  }
+  hp.value = clamp(hp.value + 15, 0, hpMax.value)
+  pushMessage(`使用治疗 +15，生命变为 ${hp.value}/${hpMax.value}`)
 }
 
 function spendMana() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'spendMana', amount: 10 })
+    return
+  }
   if (mp.value <= 0) {
     pushMessage('能量不足，无法施法')
     return
   }
-  mp.value = clamp(mp.value - 10, 0, mpMax)
-  pushMessage(`施法消耗 -10，能量剩余 ${mp.value}/${mpMax}`)
+  mp.value = clamp(mp.value - 10, 0, mpMax.value)
+  pushMessage(`施法消耗 -10，能量剩余 ${mp.value}/${mpMax.value}`)
 }
 
 function recoverMana() {
-  mp.value = clamp(mp.value + 12, 0, mpMax)
-  pushMessage(`回复能量 +12，能量变为 ${mp.value}/${mpMax}`)
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'recoverMana', amount: 12 })
+    return
+  }
+  mp.value = clamp(mp.value + 12, 0, mpMax.value)
+  pushMessage(`回复能量 +12，能量变为 ${mp.value}/${mpMax.value}`)
 }
 
 function earnCoins() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'earnCoins', amount: 25 })
+    return
+  }
   coins.value += 25
   pushMessage(`拾取金币 +25，总计 ${coins.value}`)
 }
