@@ -1,5 +1,8 @@
 <template>
-  <Container direction="vertical" class="min-h-screen bg-neutral-50 text-neutral-900">
+  <Container
+    direction="vertical"
+    class="min-h-screen bg-neutral-50 text-neutral-900"
+  >
     <Header
       bordered
       :min-height="56"
@@ -34,7 +37,11 @@
             aria-label="打开用户菜单"
             class="inline-flex items-center gap-2"
           >
-            <Avatar bordered :size="28" aria-label="用户头像">
+            <Avatar
+              bordered
+              :size="28"
+              aria-label="用户头像"
+            >
               <span class="text-xs font-semibold">U</span>
             </Avatar>
             <span class="hidden sm:inline text-sm text-neutral-700">用户</span>
@@ -44,7 +51,10 @@
       </div>
     </Header>
 
-    <Container direction="horizontal" class="flex-1 pt-14">
+    <Container
+      direction="horizontal"
+      class="flex-1 pt-14"
+    >
       <Aside
         bordered
         side="left"
@@ -95,14 +105,24 @@
         </div>
       </Aside>
 
-      <Container direction="vertical" class="min-w-0 flex-1">
+      <Container
+        direction="vertical"
+        class="min-w-0 flex-1"
+      >
         <Main class="h-[calc(100vh-3.5rem)] overflow-hidden bg-neutral-50">
           <div class="flex h-full flex-col">
-            <div class="flex-1 overflow-auto px-4 py-4" aria-label="主内容区">
+            <div
+              class="flex-1 overflow-auto px-4 py-4"
+              aria-label="主内容区"
+            >
               <RouterView />
             </div>
 
-            <Footer v-if="showFooter" bordered class="bg-white px-4 py-3 text-xs text-neutral-500">
+            <Footer
+              v-if="showFooter"
+              bordered
+              class="bg-white px-4 py-3 text-xs text-neutral-500"
+            >
               <div class="mx-auto w-full max-w-screen-2xl">
                 © {{ new Date().getFullYear() }} {{ appInfo.BName }} All rights reserved.
               </div>

@@ -2,7 +2,11 @@
   <div class="w-screen h-screen flex items-center justify-center">
     <GameUI :bridge="bridge">
       <template #content="{ slotClass }">
-        <canvas ref="gameCanvas" id="gameCanvas" :class="slotClass"></canvas>
+        <canvas
+          ref="gameCanvas"
+          id="gameCanvas"
+          :class="slotClass"
+        ></canvas>
       </template>
     </GameUI>
   </div>

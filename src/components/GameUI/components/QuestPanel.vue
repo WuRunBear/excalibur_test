@@ -5,7 +5,13 @@
   >
     <div class="flex items-center justify-between px-3 py-2">
       <div class="text-xs font-semibold text-neutral-700">任务</div>
-      <Button size="small" variant="text" @click="$emit('close')">关闭</Button>
+      <Button
+        size="small"
+        variant="text"
+        @click="$emit('close')"
+      >
+        关闭
+      </Button>
     </div>
     <div class="px-3 pb-3 text-xs text-neutral-700">
       <div class="rounded-md bg-white/50 px-3 py-2">
@@ -25,8 +31,19 @@
         </div>
       </div>
       <div class="mt-2 flex items-center justify-end gap-2">
-        <Button size="small" variant="text" @click="$emit('advance')">推进</Button>
-        <Button size="small" @click="$emit('complete')">完成</Button>
+        <Button
+          size="small"
+          variant="text"
+          @click="$emit('advance')"
+        >
+          推进
+        </Button>
+        <Button
+          size="small"
+          @click="$emit('complete')"
+        >
+          完成
+        </Button>
       </div>
     </div>
   </div>

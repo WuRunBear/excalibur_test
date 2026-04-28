@@ -1,7 +1,11 @@
 <template>
   <div class="rounded-lg border border-neutral-200 bg-white/85 px-3 py-3 shadow-sm backdrop-blur">
     <div class="flex items-center gap-2">
-      <Avatar bordered :size="28" aria-label="玩家头像">
+      <Avatar
+        bordered
+        :size="28"
+        aria-label="玩家头像"
+      >
         <span class="text-xs font-semibold">P</span>
       </Avatar>
       <div class="min-w-0">

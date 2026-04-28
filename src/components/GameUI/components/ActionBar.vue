@@ -5,18 +5,54 @@
     <div class="rounded-lg border border-neutral-200 bg-white/85 px-3 py-3 shadow-sm backdrop-blur">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center gap-2">
-          <Button size="small" @click="$emit('dealDamage')">受伤</Button>
-          <Button size="small" variant="text" @click="$emit('heal')">治疗</Button>
-          <Button size="small" @click="$emit('spendMana')">施法</Button>
-          <Button size="small" variant="text" @click="$emit('recoverMana')">回蓝</Button>
-          <Button size="small" variant="text" @click="$emit('earnCoins')">拾取金币</Button>
+          <Button
+            size="small"
+            @click="$emit('dealDamage')"
+          >
+            受伤
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            @click="$emit('heal')"
+          >
+            治疗
+          </Button>
+          <Button
+            size="small"
+            @click="$emit('spendMana')"
+          >
+            施法
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            @click="$emit('recoverMana')"
+          >
+            回蓝
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            @click="$emit('earnCoins')"
+          >
+            拾取金币
+          </Button>
         </div>
 
         <div class="flex items-center gap-2">
-          <Button size="small" variant="text" @click="$emit('toggleQuestPanel')">
+          <Button
+            size="small"
+            variant="text"
+            @click="$emit('toggleQuestPanel')"
+          >
             {{ showQuestPanel ? '隐藏任务' : '显示任务' }}
           </Button>
-          <Button size="small" variant="text" @click="$emit('toggleMiniMap')">
+          <Button
+            size="small"
+            variant="text"
+            @click="$emit('toggleMiniMap')"
+          >
             {{ showMiniMap ? '隐藏小地图' : '显示小地图' }}
           </Button>
         </div>

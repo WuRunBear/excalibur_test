@@ -1,6 +1,9 @@
 <template>
   <div class="relative inline-block select-none">
-    <slot name="content" :slotClass="['block', 'relative', 'z-0', 'rounded-lg']"></slot>
+    <slot
+      name="content"
+      :slotClass="['block', 'relative', 'z-0', 'rounded-lg']"
+    ></slot>
 
     <div class="absolute inset-0 z-[1] pointer-events-none">
       <div class="absolute left-3 top-3 flex items-start gap-3 pointer-events-auto">
@@ -32,7 +35,10 @@
 
       <div class="absolute right-3 top-3 grid gap-2 pointer-events-auto">
         <TipsPanel />
-        <MessagePanel :messages="messages" @add="pushMessage" />
+        <MessagePanel
+          :messages="messages"
+          @add="pushMessage"
+        />
       </div>
 
       <ActionBar
@@ -47,7 +53,10 @@
         @toggleMiniMap="toggleMiniMap"
       />
 
-      <MiniMapPanel v-if="showMiniMap" @close="toggleMiniMap" />
+      <MiniMapPanel
+        v-if="showMiniMap"
+        @close="toggleMiniMap"
+      />
 
       <QuestPanel
         v-if="showQuestPanel"

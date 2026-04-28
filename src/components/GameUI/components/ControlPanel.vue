@@ -9,14 +9,26 @@
       >
         {{ isPaused ? '已暂停' : '暂停' }}
       </Button>
-      <Button size="small" variant="text" @click="$emit('reset')">重置</Button>
+      <Button
+        size="small"
+        variant="text"
+        @click="$emit('reset')"
+      >
+        重置
+      </Button>
       <DropDown
         :options="moreOptions"
         trigger="click"
         placement="bottom-start"
         @select="onMoreSelect"
       >
-        <Button size="small" variant="text" aria-label="更多">更多 ▾</Button>
+        <Button
+          size="small"
+          variant="text"
+          aria-label="更多"
+        >
+          更多 ▾
+        </Button>
       </DropDown>
     </div>
 

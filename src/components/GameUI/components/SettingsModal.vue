@@ -5,7 +5,13 @@
     >
       <div class="flex items-center justify-between">
         <div class="text-sm font-semibold text-neutral-900">设置（测试）</div>
-        <Button size="small" variant="text" @click="$emit('close')">关闭</Button>
+        <Button
+          size="small"
+          variant="text"
+          @click="$emit('close')"
+        >
+          关闭
+        </Button>
       </div>
 
       <div class="mt-3 grid gap-3">
@@ -65,8 +71,19 @@
       </div>
 
       <div class="mt-4 flex items-center justify-end gap-2">
-        <Button size="small" variant="text" @click="$emit('reset')">恢复默认</Button>
-        <Button size="small" @click="$emit('save')">保存</Button>
+        <Button
+          size="small"
+          variant="text"
+          @click="$emit('reset')"
+        >
+          恢复默认
+        </Button>
+        <Button
+          size="small"
+          @click="$emit('save')"
+        >
+          保存
+        </Button>
       </div>
     </div>
   </div>
