@@ -4,6 +4,11 @@ import type { Facing, PlayerSnapshot } from 'game/type'
 
 /**
  * 玩家 Actor：处理键盘输入与位移，并按帧上报可序列化的玩家快照。
+ *
+ * 注意：
+ * - 该 Actor 属于“单机/本地权威移动”的演示实现
+ * - 当前项目已接入 Colyseus 服务端权威同步后，渲染应使用 EntityActor + ActorManager
+ * - 该文件暂时保留用于参考（未在主场景中使用）
  */
 export class Player extends Actor {
   /**

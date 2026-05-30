@@ -1,0 +1,63 @@
+/**
+ * 客户端输入消息（上行到服务端）。
+ *
+ * 对应服务端 GameRoom 的 onMessage("input")：
+ * - seq 用于丢弃重复/乱序输入
+ * - moveX/moveY 为速度分量（像素/秒），会写入服务端 ECS 的 Velocity.vx/vy
+ */
+export interface InputPayload {
+  seq: number
+  moveX: number
+  moveY: number
+}
+
+export interface MapRuntimeGrid {
+  width: number
+  height: number
+  tileWidth: number
+  tileHeight: number
+}
+
+export interface MapRuntimeVec2 {
+  x: number
+  y: number
+}
+
+export interface MapRuntimeZone {
+  id: number
+  name: string
+  polygon: MapRuntimeVec2[]
+}
+
+export interface MapRuntimeSpawns {
+  player: MapRuntimeVec2 | null
+  npcs: Array<{ kind: string; pos: MapRuntimeVec2; zoneId?: number }>
+}
+
+export interface MapRuntimeResponse {
+  id: string
+  name: string
+  grid: MapRuntimeGrid
+  blockedBase64: string
+  spawns: MapRuntimeSpawns
+  zones: MapRuntimeZone[]
+}
+
+export interface MapRuntime {
+  id: string
+  name: string
+  grid: MapRuntimeGrid
+  blocked: Uint8Array
+  spawns: MapRuntimeSpawns
+  zones: MapRuntimeZone[]
+}
+
+/**
+ * 网络连接状态。
+ *
+ * - idle：未开始连接
+ * - connecting：连接中
+ * - connected：已加入房间（可收发消息）
+ * - disconnected：断开连接/连接失败
+ */
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'

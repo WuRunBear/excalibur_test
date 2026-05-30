@@ -15,11 +15,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "schema:sync": "node scripts/sync-colyseus-schema.mjs",
     "check": "run-s lint type-check test",
     "check:all": "run-s lint type-check test build-only"
   },
   "dependencies": {
     "@excaliburjs/plugin-tiled": "^0.32.0",
+    "@colyseus/schema": "^4.0.25",
+    "@colyseus/sdk": "^0.17.42",
     "excalibur": "^0.32.0",
     "@pixelium/web-vue": "^0.1.4",
     "@tailwindcss/vite": "^4.2.4",

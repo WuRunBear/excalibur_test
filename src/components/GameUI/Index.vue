@@ -6,7 +6,7 @@
     ></slot>
 
     <div class="absolute inset-0 z-[1] pointer-events-none">
-      <div class="absolute left-3 top-3 flex items-start gap-3 pointer-events-auto">
+      <!-- <div class="absolute left-3 top-3 flex items-start gap-3 pointer-events-auto">
         <PlayerStatusPanel
           :player-name="playerName"
           :zone="zone"
@@ -80,7 +80,7 @@
         @save="showSettings = false"
         @updateQuality="graphicsQuality = $event"
         @updateVolume="volume = $event"
-      />
+      /> -->
     </div>
   </div>
 </template>

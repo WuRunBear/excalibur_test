@@ -1,34 +1,47 @@
-import { Engine } from 'excalibur'
+import { Engine, Keys, type TileMap } from 'excalibur'
 import { createGameBridge } from './bridge'
 import { config } from './config'
 import { sceneList } from './scenes'
 import { loader } from './resources'
 
-import type { GameCommand, GameController, GameHost, GameUIState, PlayerSnapshot } from './type'
+import type { Facing, GameCommand, GameController, GameUIState } from './type'
 
-/**
- * 数值夹紧：把 n 限制在 [min, max] 区间内。
- *
- * @param n 原始值
- * @param min 最小值
- * @param max 最大值
- * @returns 夹紧后的值
- */
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n))
-}
+import { GameConnection } from './net/connection'
+import type { ConnectionStatus, InputPayload, MapRuntime } from './net/types'
+import { ActorManager } from './world/actorManager'
+import { EntityStore } from './world/entityStore'
+import { createMapTileMap } from './world/mapTileMap'
 
 /**
  * Excalibur 游戏引擎实现：
  * - 维护游戏内部状态（GameUIState）
  * - 通过 bridge 向 UI 推送状态/消息，接收 UI 指令
- * - 实现 GameHost，用于从 Actor/Scene 处接收快照回调
+ *
+ * 联网模式约定：
+ * - 服务端权威：客户端只上行输入，下行同步 RoomState
+ * - 多玩家可见：渲染 RoomState.entities 中的全部实体
+ * - 不做复杂摄像机：只保证世界坐标正确渲染
  */
-export class MyGame extends Engine implements GameHost {
+export class MyGame extends Engine {
   private readonly bridgeInternal: ReturnType<typeof createGameBridge>
   private state: GameUIState
   private emitCooldownMs = 0
+  private connectionStatus: ConnectionStatus = 'idle'
 
+  private readonly connection = new GameConnection()
+  private readonly entityStore = new EntityStore(50)
+  private readonly actorManager = new ActorManager()
+  private localEntityId: number | undefined
+  private mapRuntime: MapRuntime | undefined
+  private mapTileMap: TileMap | undefined
+
+  private inputSeq = 0
+  private inputCooldownMs = 0
+  private facing: Facing = '下'
+
+  /**
+   * @param canvasElement 承载 Excalibur 渲染的 canvas
+   */
   constructor(canvasElement: HTMLCanvasElement) {
     super({
       width: config.width,
@@ -38,21 +51,7 @@ export class MyGame extends Engine implements GameHost {
       displayMode: config.displayMode,
     })
 
-    this.state = {
-      fps: 60,
-      isPaused: false,
-      player: { x: 50, y: 50, facing: '下' },
-      stats: {
-        name: '测试玩家',
-        zone: '新手村',
-        level: 7,
-        hp: 86,
-        hpMax: 100,
-        mp: 52,
-        mpMax: 80,
-        coins: 128,
-      },
-    }
+    this.state = this.createInitialState()
 
     this.bridgeInternal = createGameBridge({
       initialState: this.state,
@@ -73,6 +72,8 @@ export class MyGame extends Engine implements GameHost {
 
     // 2. 启动引擎并加载资源
     await super.start(loader)
+
+    await this.connectToServer()
   }
 
   /**
@@ -87,30 +88,200 @@ export class MyGame extends Engine implements GameHost {
    */
   destroy() {
     this.stop()
+    void this.connection.disconnect()
     this.bridgeInternal.destroy()
   }
 
   /**
-   * 由 Actor/Scene 上报玩家快照时触发，用于更新 UI 状态。
+   * 网络驱动帧回调：由场景每帧调用，用于驱动网络同步与渲染更新。
    *
-   * 说明：
-   * - 这里会根据 deltaMs 粗略计算 fps
-   * - 对状态推送做了节流（默认 100ms 一次），避免 UI 过于频繁渲染
+   * 职责：
+   * - 从 EntityStore 采样插值后的快照
+   * - 通过 ActorManager 把快照落地到场景 Actor（增删改）
+   * - 更新 UI 状态（fps/本地玩家坐标/hp 等）
+   * - 以固定频率读取输入并上行到服务端
    *
-   * @param snapshot 玩家快照
+   * @param scene 当前运行的场景实例
+   * @param deltaMs 距离上一帧的时间（毫秒）
    */
-  onPlayerSnapshot(snapshot: PlayerSnapshot): void {
-    const fps = snapshot.deltaMs > 0 ? Math.round(1000 / snapshot.deltaMs) : this.state.fps
-    this.state = {
-      ...this.state,
-      fps,
-      player: { x: snapshot.x, y: snapshot.y, facing: snapshot.facing },
+  onNetworkFrame(scene: unknown, deltaMs: number) {
+    if (this.connectionStatus !== 'connected') {
+      this.emitNetworkUiState(deltaMs, undefined)
+      return
     }
 
-    this.emitCooldownMs += snapshot.deltaMs
+    const nowMs = performance.now()
+    this.ensureMapVisible(scene as any)
+    const snapshots = this.entityStore.sample(nowMs)
+    this.actorManager.apply(scene as any, snapshots, this.localEntityId)
+
+    const localSnapshot =
+      typeof this.localEntityId === 'number' ? snapshots.get(this.localEntityId) : undefined
+    this.emitNetworkUiState(deltaMs, localSnapshot)
+
+    if (this.state.isPaused) return
+    this.inputCooldownMs += deltaMs
+    if (this.inputCooldownMs < 50) return
+    this.inputCooldownMs = 0
+
+    const payload = this.readInputPayload()
+    this.connection.sendInput(payload)
+  }
+
+  /**
+   * 生成 UI 初始状态。
+   *
+   * 说明：
+   * - 联网模式下，真实数值以服务端下行为准
+   * - 这里的默认值只用于首屏占位，避免 UI 读取 undefined
+   *
+   * @returns 初始 UI 状态
+   */
+  private createInitialState(): GameUIState {
+    return {
+      fps: 60,
+      isPaused: false,
+      player: { x: 0, y: 0, facing: '下' },
+      stats: {
+        name: '-',
+        zone: '-',
+        level: 1,
+        hp: 0,
+        hpMax: 100,
+        mp: 0,
+        mpMax: 0,
+        coins: 0,
+      },
+    }
+  }
+
+  /**
+   * 连接服务端并注册 RoomState 监听。
+   *
+   * 说明：
+   * - joinOrCreate("game") 进入单房间
+   * - onStateChange 收到的 state 已由 Colyseus 自动合并增量补丁
+   * - localEntityId 用 players.get(sessionId)?.entityId 绑定本地玩家实体
+   */
+  private async connectToServer() {
+    if (this.connectionStatus === 'connecting' || this.connectionStatus === 'connected') return
+    this.connectionStatus = 'connecting'
+
+    try {
+      const room = await this.connection.connect()
+      this.mapRuntime = await this.connection.fetchMapRuntime()
+      this.connectionStatus = 'connected'
+      this.bridgeInternal.emitMessage('已连接到服务器')
+
+      room.onStateChange((state) => {
+        const nowMs = performance.now()
+        this.entityStore.updateFromRoomState(state, nowMs)
+
+        const player = state.players.get(room.sessionId)
+        this.localEntityId = player?.entityId
+      })
+
+      room.onLeave(() => {
+        this.connectionStatus = 'disconnected'
+        this.bridgeInternal.emitMessage('连接已断开')
+      })
+    } catch {
+      this.connectionStatus = 'disconnected'
+      this.bridgeInternal.emitMessage('连接失败')
+    }
+  }
+
+  /**
+   * 确保地图已添加到场景中。
+   *
+   * 说明：
+   * - 地图数据通过 HTTP 拉取一次
+   * - TileMap 只创建一次，后续不再重复 add
+   *
+   * @param scene 当前场景
+   */
+  private ensureMapVisible(scene: { add: (entity: unknown) => void }) {
+    if (!this.mapRuntime) return
+    if (this.mapTileMap) return
+    const tileMap = createMapTileMap(this.mapRuntime)
+    this.mapTileMap = tileMap
+    scene.add(tileMap)
+  }
+
+  /**
+   * 推送网络驱动的 UI 状态（带节流）。
+   *
+   * @param deltaMs 距离上一帧的时间（毫秒）
+   * @param localSnapshot 本地玩家实体采样快照（可能不存在）
+   */
+  private emitNetworkUiState(
+    deltaMs: number,
+    localSnapshot: { x: number; y: number; hp: number } | undefined,
+  ) {
+    const fps = deltaMs > 0 ? Math.round(1000 / deltaMs) : this.state.fps
+    const next = {
+      ...this.state,
+      fps,
+      player: {
+        x: localSnapshot?.x ?? this.state.player.x,
+        y: localSnapshot?.y ?? this.state.player.y,
+        facing: this.facing,
+      },
+      stats: {
+        ...this.state.stats,
+        hp: localSnapshot?.hp ?? this.state.stats.hp,
+        name: this.connection.room?.sessionId ?? this.state.stats.name,
+        zone: 'game',
+      },
+    }
+
+    this.state = next
+
+    this.emitCooldownMs += deltaMs
     if (this.emitCooldownMs < 100) return
     this.emitCooldownMs = 0
     this.bridgeInternal.setState(this.state)
+  }
+
+  /**
+   * 读取键盘输入并构造服务端需要的 InputPayload。
+   *
+   * 说明：
+   * - WASD 映射为二维方向向量
+   * - moveX/moveY 以“速度（像素/秒）”形式上行，与服务端 movementSystem 积分方式对齐
+   * - 对斜向移动做归一化，避免对角线速度更快
+   *
+   * @returns 输入负载
+   */
+  private readInputPayload(): InputPayload {
+    const speed = 200
+    const keyboard = this.input.keyboard
+
+    let dx = 0
+    let dy = 0
+
+    if (keyboard.isHeld(Keys.W)) dy -= 1
+    if (keyboard.isHeld(Keys.S)) dy += 1
+    if (keyboard.isHeld(Keys.A)) dx -= 1
+    if (keyboard.isHeld(Keys.D)) dx += 1
+
+    if (dx !== 0 || dy !== 0) {
+      if (Math.abs(dx) > Math.abs(dy)) this.facing = dx > 0 ? '右' : '左'
+      else this.facing = dy > 0 ? '下' : '上'
+    }
+
+    if (dx !== 0 && dy !== 0) {
+      const inv = 1 / Math.sqrt(2)
+      dx *= inv
+      dy *= inv
+    }
+
+    const payload: InputPayload = {
+      seq: (this.inputSeq += 1),
+      moveX: dx * speed,
+      moveY: dy * speed,
+    }
+    return payload
   }
 
   /**
@@ -139,71 +310,11 @@ export class MyGame extends Engine implements GameHost {
     }
 
     if (command.type === 'reset') {
-      this.state = {
-        ...this.state,
-        isPaused: false,
-        player: { x: 50, y: 50, facing: '下' },
-        stats: {
-          ...this.state.stats,
-          hp: this.state.stats.hpMax,
-          mp: this.state.stats.mpMax,
-          coins: 0,
-        },
-      }
-      this.bridgeInternal.emitMessage('状态已重置')
-      this.bridgeInternal.setState(this.state)
-      void this.goToScene('main')
+      this.bridgeInternal.emitMessage('服务端未提供重置能力')
       return
     }
 
-    if (command.type === 'dealDamage') {
-      const nextHp = clamp(this.state.stats.hp - command.amount, 0, this.state.stats.hpMax)
-      this.state = { ...this.state, stats: { ...this.state.stats, hp: nextHp } }
-      this.bridgeInternal.emitMessage(
-        `受到伤害 -${command.amount}，生命剩余 ${nextHp}/${this.state.stats.hpMax}`,
-      )
-      this.bridgeInternal.setState(this.state)
-      return
-    }
-
-    if (command.type === 'heal') {
-      const nextHp = clamp(this.state.stats.hp + command.amount, 0, this.state.stats.hpMax)
-      this.state = { ...this.state, stats: { ...this.state.stats, hp: nextHp } }
-      this.bridgeInternal.emitMessage(
-        `使用治疗 +${command.amount}，生命变为 ${nextHp}/${this.state.stats.hpMax}`,
-      )
-      this.bridgeInternal.setState(this.state)
-      return
-    }
-
-    if (command.type === 'spendMana') {
-      const nextMp = clamp(this.state.stats.mp - command.amount, 0, this.state.stats.mpMax)
-      this.state = { ...this.state, stats: { ...this.state.stats, mp: nextMp } }
-      if (nextMp === 0) this.bridgeInternal.emitMessage('能量不足，无法施法')
-      else
-        this.bridgeInternal.emitMessage(
-          `施法消耗 -${command.amount}，能量剩余 ${nextMp}/${this.state.stats.mpMax}`,
-        )
-      this.bridgeInternal.setState(this.state)
-      return
-    }
-
-    if (command.type === 'recoverMana') {
-      const nextMp = clamp(this.state.stats.mp + command.amount, 0, this.state.stats.mpMax)
-      this.state = { ...this.state, stats: { ...this.state.stats, mp: nextMp } }
-      this.bridgeInternal.emitMessage(
-        `回复能量 +${command.amount}，能量变为 ${nextMp}/${this.state.stats.mpMax}`,
-      )
-      this.bridgeInternal.setState(this.state)
-      return
-    }
-
-    if (command.type === 'earnCoins') {
-      const nextCoins = this.state.stats.coins + command.amount
-      this.state = { ...this.state, stats: { ...this.state.stats, coins: nextCoins } }
-      this.bridgeInternal.emitMessage(`拾取金币 +${command.amount}，总计 ${nextCoins}`)
-      this.bridgeInternal.setState(this.state)
-    }
+    this.bridgeInternal.emitMessage('服务端未提供该能力')
   }
 }
 
