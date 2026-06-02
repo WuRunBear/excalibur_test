@@ -1,6 +1,6 @@
-import { Engine, Keys, type TileMap } from 'excalibur'
+import { Engine, Keys, type Actor, type TileMap } from 'excalibur'
 import { createGameBridge } from './bridge'
-import { config } from './config'
+import { config, debugConfig } from './config'
 import { sceneList } from './scenes'
 import { loader } from './resources'
 
@@ -10,7 +10,7 @@ import { GameConnection } from './net/connection'
 import type { ConnectionStatus, InputPayload, MapRuntime } from './net/types'
 import { ActorManager } from './world/actorManager'
 import { EntityStore } from './world/entityStore'
-import { createMapTileMap } from './world/mapTileMap'
+import { createCollisionRectDebugActors, createMapTileMap } from './world/mapTileMap'
 
 /**
  * Excalibur 游戏引擎实现：
@@ -34,6 +34,7 @@ export class MyGame extends Engine {
   private localEntityId: number | undefined
   private mapRuntime: MapRuntime | undefined
   private mapTileMap: TileMap | undefined
+  private mapCollisionDebugActors: Actor[] | undefined
 
   private inputSeq = 0
   private inputCooldownMs = 0
@@ -206,6 +207,12 @@ export class MyGame extends Engine {
     const tileMap = createMapTileMap(this.mapRuntime)
     this.mapTileMap = tileMap
     scene.add(tileMap)
+
+    if (debugConfig.drawCollisionRects) {
+      const actors = createCollisionRectDebugActors(this.mapRuntime)
+      this.mapCollisionDebugActors = actors
+      for (const actor of actors) scene.add(actor)
+    }
   }
 
   /**
