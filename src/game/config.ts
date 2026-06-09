@@ -11,7 +11,7 @@ export interface Config {
 }
 
 export interface DebugConfig {
-  drawCollisionRects: boolean
+  drawServerColliders: boolean
 }
 
 /**
@@ -24,14 +24,8 @@ export const config: Config = {
   displayMode: DisplayMode.FitScreen,
 }
 
-/**
- * 调试配置。
- *
- * 约定：
- * - VITE_GAME_DEBUG_DRAW_COLLISION_RECTS=true/1：绘制服务端碰撞系统的“合并后矩形碰撞体”
- */
 export const debugConfig: DebugConfig = {
-  drawCollisionRects:
-    (import.meta.env.VITE_GAME_DEBUG_DRAW_COLLISION_RECTS as string | undefined) === '1' ||
-    (import.meta.env.VITE_GAME_DEBUG_DRAW_COLLISION_RECTS as string | undefined) === 'true',
+  drawServerColliders:
+    (import.meta.env.VITE_GAME_DEBUG_DRAW_SERVER_COLLIDERS as string | undefined) === '1' ||
+    (import.meta.env.VITE_GAME_DEBUG_DRAW_SERVER_COLLIDERS as string | undefined) === 'true',
 }

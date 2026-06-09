@@ -1,7 +1,7 @@
 import { Client, type Room } from '@colyseus/sdk'
 
 import { gameServerHttpBaseUrl, gameServerUrl } from './config'
-import type { InputPayload, MapRuntime, MapRuntimeResponse } from './types'
+import type { CollisionDebugSnapshot, InputPayload, MapRuntime, MapRuntimeResponse } from './types'
 import type { RoomState } from './schema'
 
 /**
@@ -99,5 +99,16 @@ export class GameConnection {
       spawns: json.spawns,
       zones: json.zones,
     }
+  }
+
+  /**
+   * 拉取服务端当前帧的碰撞调试快照（用于可视化真实碰撞体）。
+   *
+   * @returns 碰撞调试快照
+   */
+  async fetchCollisionDebugSnapshot(): Promise<CollisionDebugSnapshot> {
+    const resp = await fetch(`${gameServerHttpBaseUrl}/debug/colliders`)
+    if (!resp.ok) throw new Error(`fetch collision debug snapshot failed: ${resp.status}`)
+    return (await resp.json()) as CollisionDebugSnapshot
   }
 }

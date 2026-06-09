@@ -7,10 +7,10 @@ import { loader } from './resources'
 import type { Facing, GameCommand, GameController, GameUIState } from './type'
 
 import { GameConnection } from './net/connection'
-import type { ConnectionStatus, InputPayload, MapRuntime } from './net/types'
+import type { CollisionDebugSnapshot, ConnectionStatus, InputPayload, MapRuntime } from './net/types'
 import { ActorManager } from './world/actorManager'
 import { EntityStore } from './world/entityStore'
-import { createCollisionRectDebugActors, createMapTileMap } from './world/mapTileMap'
+import { createMapTileMap, createServerColliderDebugActors } from './world/mapTileMap'
 
 /**
  * Excalibur 游戏引擎实现：
@@ -34,7 +34,8 @@ export class MyGame extends Engine {
   private localEntityId: number | undefined
   private mapRuntime: MapRuntime | undefined
   private mapTileMap: TileMap | undefined
-  private mapCollisionDebugActors: Actor[] | undefined
+  private collisionDebugSnapshot: CollisionDebugSnapshot | undefined
+  private serverColliderDebugActors: Actor[] | undefined
 
   private inputSeq = 0
   private inputCooldownMs = 0
@@ -171,6 +172,13 @@ export class MyGame extends Engine {
     try {
       const room = await this.connection.connect()
       this.mapRuntime = await this.connection.fetchMapRuntime()
+      if (debugConfig.drawServerColliders) {
+        try {
+          this.collisionDebugSnapshot = await this.connection.fetchCollisionDebugSnapshot()
+        } catch {
+          this.collisionDebugSnapshot = undefined
+        }
+      }
       this.connectionStatus = 'connected'
       this.bridgeInternal.emitMessage('已连接到服务器')
 
@@ -208,9 +216,9 @@ export class MyGame extends Engine {
     this.mapTileMap = tileMap
     scene.add(tileMap)
 
-    if (debugConfig.drawCollisionRects) {
-      const actors = createCollisionRectDebugActors(this.mapRuntime)
-      this.mapCollisionDebugActors = actors
+    if (debugConfig.drawServerColliders && this.collisionDebugSnapshot) {
+      const actors = createServerColliderDebugActors(this.collisionDebugSnapshot)
+      this.serverColliderDebugActors = actors
       for (const actor of actors) scene.add(actor)
     }
   }

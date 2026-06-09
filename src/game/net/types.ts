@@ -52,6 +52,26 @@ export interface MapRuntime {
   zones: MapRuntimeZone[]
 }
 
+export type CollisionDebugMapBody = {
+  kind: 'map'
+  shape: 'box'
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type CollisionDebugEntityBody =
+  | { kind: 'entity'; shape: 'circle'; eid: number; x: number; y: number; r: number }
+  | { kind: 'entity'; shape: 'box'; eid: number; x: number; y: number; width: number; height: number }
+
+export type CollisionDebugBody = CollisionDebugMapBody | CollisionDebugEntityBody
+
+export interface CollisionDebugSnapshot {
+  tick: number
+  bodies: CollisionDebugBody[]
+}
+
 /**
  * 网络连接状态。
  *
