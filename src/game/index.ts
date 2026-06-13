@@ -1,26 +1,23 @@
-import { Engine, Keys, type Actor, type TileMap } from 'excalibur'
+import { Engine, Keys } from 'excalibur'
 import { createGameBridge } from './bridge'
-import { config, debugConfig } from './config'
+import { config } from './config'
 import { sceneList } from './scenes'
 import { loader } from './resources'
 
-import type { Facing, GameCommand, GameController, GameUIState } from './type'
+import type { Facing, GameCommand, GameController, GameUIState, PlayerSnapshot } from './type'
 
 import { GameConnection } from './net/connection'
-import type { CollisionDebugSnapshot, ConnectionStatus, InputPayload, MapRuntime } from './net/types'
-import { ActorManager } from './world/actorManager'
-import { EntityStore } from './world/entityStore'
-import { createMapTileMap, createServerColliderDebugActors } from './world/mapTileMap'
+import type { ConnectionStatus, InputPayload } from './net/types'
 
 /**
  * Excalibur 游戏引擎实现：
  * - 维护游戏内部状态（GameUIState）
  * - 通过 bridge 向 UI 推送状态/消息，接收 UI 指令
  *
- * 联网模式约定：
- * - 服务端权威：客户端只上行输入，下行同步 RoomState
- * - 多玩家可见：渲染 RoomState.entities 中的全部实体
- * - 不做复杂摄像机：只保证世界坐标正确渲染
+ * 当前模式约定：
+ * - 场景仍使用本地 Actor 渲染
+ * - 保留联机通信能力：连接服务端并上行输入
+ * - 不接入服务端下行状态的渲染逻辑
  */
 export class MyGame extends Engine {
   private readonly bridgeInternal: ReturnType<typeof createGameBridge>
@@ -29,13 +26,6 @@ export class MyGame extends Engine {
   private connectionStatus: ConnectionStatus = 'idle'
 
   private readonly connection = new GameConnection()
-  private readonly entityStore = new EntityStore(50)
-  private readonly actorManager = new ActorManager()
-  private localEntityId: number | undefined
-  private mapRuntime: MapRuntime | undefined
-  private mapTileMap: TileMap | undefined
-  private collisionDebugSnapshot: CollisionDebugSnapshot | undefined
-  private serverColliderDebugActors: Actor[] | undefined
 
   private inputSeq = 0
   private inputCooldownMs = 0
@@ -95,31 +85,21 @@ export class MyGame extends Engine {
   }
 
   /**
-   * 网络驱动帧回调：由场景每帧调用，用于驱动网络同步与渲染更新。
+   * 网络驱动帧回调：由场景每帧调用，用于驱动网络同步与输入上行。
    *
    * 职责：
-   * - 从 EntityStore 采样插值后的快照
-   * - 通过 ActorManager 把快照落地到场景 Actor（增删改）
-   * - 更新 UI 状态（fps/本地玩家坐标/hp 等）
+   * - 更新 UI 状态（fps 等）
    * - 以固定频率读取输入并上行到服务端
    *
-   * @param scene 当前运行的场景实例
    * @param deltaMs 距离上一帧的时间（毫秒）
    */
-  onNetworkFrame(scene: unknown, deltaMs: number) {
+  onNetworkFrame(_scene: unknown, deltaMs: number) {
     if (this.connectionStatus !== 'connected') {
-      this.emitNetworkUiState(deltaMs, undefined)
+      this.emitNetworkUiState(deltaMs)
       return
     }
 
-    const nowMs = performance.now()
-    this.ensureMapVisible(scene as any)
-    const snapshots = this.entityStore.sample(nowMs)
-    this.actorManager.apply(scene as any, snapshots, this.localEntityId)
-
-    const localSnapshot =
-      typeof this.localEntityId === 'number' ? snapshots.get(this.localEntityId) : undefined
-    this.emitNetworkUiState(deltaMs, localSnapshot)
+    this.emitNetworkUiState(deltaMs)
 
     if (this.state.isPaused) return
     this.inputCooldownMs += deltaMs
@@ -134,8 +114,8 @@ export class MyGame extends Engine {
    * 生成 UI 初始状态。
    *
    * 说明：
-   * - 联网模式下，真实数值以服务端下行为准
-   * - 这里的默认值只用于首屏占位，避免 UI 读取 undefined
+   * - 这里的默认值用于首屏占位
+   * - 后续由本地玩家快照与运行时状态逐步覆盖
    *
    * @returns 初始 UI 状态
    */
@@ -158,12 +138,11 @@ export class MyGame extends Engine {
   }
 
   /**
-   * 连接服务端并注册 RoomState 监听。
+   * 连接服务端。
    *
    * 说明：
    * - joinOrCreate("game") 进入单房间
-   * - onStateChange 收到的 state 已由 Colyseus 自动合并增量补丁
-   * - localEntityId 用 players.get(sessionId)?.entityId 绑定本地玩家实体
+   * - 仅保留连接与断线处理，不接入服务端状态渲染链路
    */
   private async connectToServer() {
     if (this.connectionStatus === 'connecting' || this.connectionStatus === 'connected') return
@@ -171,24 +150,8 @@ export class MyGame extends Engine {
 
     try {
       const room = await this.connection.connect()
-      this.mapRuntime = await this.connection.fetchMapRuntime()
-      if (debugConfig.drawServerColliders) {
-        try {
-          this.collisionDebugSnapshot = await this.connection.fetchCollisionDebugSnapshot()
-        } catch {
-          this.collisionDebugSnapshot = undefined
-        }
-      }
       this.connectionStatus = 'connected'
       this.bridgeInternal.emitMessage('已连接到服务器')
-
-      room.onStateChange((state) => {
-        const nowMs = performance.now()
-        this.entityStore.updateFromRoomState(state, nowMs)
-
-        const player = state.players.get(room.sessionId)
-        this.localEntityId = player?.entityId
-      })
 
       room.onLeave(() => {
         this.connectionStatus = 'disconnected'
@@ -201,52 +164,19 @@ export class MyGame extends Engine {
   }
 
   /**
-   * 确保地图已添加到场景中。
-   *
-   * 说明：
-   * - 地图数据通过 HTTP 拉取一次
-   * - TileMap 只创建一次，后续不再重复 add
-   *
-   * @param scene 当前场景
-   */
-  private ensureMapVisible(scene: { add: (entity: unknown) => void }) {
-    if (!this.mapRuntime) return
-    if (this.mapTileMap) return
-    const tileMap = createMapTileMap(this.mapRuntime)
-    this.mapTileMap = tileMap
-    scene.add(tileMap)
-
-    if (debugConfig.drawServerColliders && this.collisionDebugSnapshot) {
-      const actors = createServerColliderDebugActors(this.collisionDebugSnapshot)
-      this.serverColliderDebugActors = actors
-      for (const actor of actors) scene.add(actor)
-    }
-  }
-
-  /**
    * 推送网络驱动的 UI 状态（带节流）。
    *
    * @param deltaMs 距离上一帧的时间（毫秒）
-   * @param localSnapshot 本地玩家实体采样快照（可能不存在）
    */
-  private emitNetworkUiState(
-    deltaMs: number,
-    localSnapshot: { x: number; y: number; hp: number } | undefined,
-  ) {
+  private emitNetworkUiState(deltaMs: number) {
     const fps = deltaMs > 0 ? Math.round(1000 / deltaMs) : this.state.fps
     const next = {
       ...this.state,
       fps,
       player: {
-        x: localSnapshot?.x ?? this.state.player.x,
-        y: localSnapshot?.y ?? this.state.player.y,
-        facing: this.facing,
-      },
-      stats: {
-        ...this.state.stats,
-        hp: localSnapshot?.hp ?? this.state.stats.hp,
-        name: this.connection.room?.sessionId ?? this.state.stats.name,
-        zone: 'game',
+        x: this.state.player.x,
+        y: this.state.player.y,
+        facing: this.state.player.facing,
       },
     }
 
@@ -256,6 +186,23 @@ export class MyGame extends Engine {
     if (this.emitCooldownMs < 100) return
     this.emitCooldownMs = 0
     this.bridgeInternal.setState(this.state)
+  }
+
+  /**
+   * 接收本地玩家快照，并同步到 UI 状态。
+   *
+   * @param snapshot 本地玩家快照
+   */
+  onPlayerSnapshot(snapshot: PlayerSnapshot) {
+    this.facing = snapshot.facing
+    this.state = {
+      ...this.state,
+      player: {
+        x: snapshot.x,
+        y: snapshot.y,
+        facing: snapshot.facing,
+      },
+    }
   }
 
   /**
