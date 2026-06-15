@@ -30,6 +30,19 @@ export interface PlayerStats {
 }
 
 /**
+ * 调试可视化状态。
+ */
+export interface GameDebugState {
+  enabled: boolean
+  showMapColliders: boolean
+  showEntityColliders: boolean
+  autoRefresh: boolean
+  colliderCount: number
+  pairCount: number
+  tick: number
+}
+
+/**
  * 游戏提供给 UI 的状态快照。
  * - UI 只读：UI 不应直接改写该对象，而是通过 dispatch 下发指令
  */
@@ -42,6 +55,7 @@ export interface GameUIState {
     facing: Facing
   }
   stats: PlayerStats
+  debug: GameDebugState
 }
 
 /**
@@ -68,6 +82,13 @@ export type GameCommand =
   | { type: 'togglePause' }
   | { type: 'setPaused'; value: boolean }
   | { type: 'reset' }
+  | {
+      type: 'setDebugOptions'
+      value: Partial<
+        Pick<GameDebugState, 'enabled' | 'showMapColliders' | 'showEntityColliders' | 'autoRefresh'>
+      >
+    }
+  | { type: 'refreshDebugOverlay' }
   | { type: 'dealDamage'; amount: number }
   | { type: 'heal'; amount: number }
   | { type: 'spendMana'; amount: number }

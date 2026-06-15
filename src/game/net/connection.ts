@@ -79,6 +79,41 @@ export class GameConnection {
   }
 
   /**
+   * 订阅碰撞调试快照消息。
+   *
+   * @param onSnapshot 收到快照后的回调
+   * @returns 取消订阅函数
+   */
+  subscribeCollisionDebugSnapshots(
+    onSnapshot: (snapshot: CollisionDebugSnapshot) => void,
+  ): () => void {
+    const room = this.roomInternal
+    if (!room) return () => {}
+    return room.onMessage('debug_colliders_snapshot', onSnapshot)
+  }
+
+  /**
+   * 打开服务端碰撞调试推送。
+   */
+  subscribeCollisionDebugStream(): void {
+    this.roomInternal?.send('debug_colliders_subscribe')
+  }
+
+  /**
+   * 关闭服务端碰撞调试推送。
+   */
+  unsubscribeCollisionDebugStream(): void {
+    this.roomInternal?.send('debug_colliders_unsubscribe')
+  }
+
+  /**
+   * 请求服务端立即回传一帧碰撞调试快照。
+   */
+  requestCollisionDebugSnapshot(): void {
+    this.roomInternal?.send('debug_colliders_pull')
+  }
+
+  /**
    * 拉取服务端当前地图运行时数据（用于客户端显示）。
    *
    * 说明：

@@ -63,13 +63,29 @@ export type CollisionDebugMapBody = {
 
 export type CollisionDebugEntityBody =
   | { kind: 'entity'; shape: 'circle'; eid: number; x: number; y: number; r: number }
-  | { kind: 'entity'; shape: 'box'; eid: number; x: number; y: number; width: number; height: number }
+  | {
+      kind: 'entity'
+      shape: 'box'
+      eid: number
+      x: number
+      y: number
+      width: number
+      height: number
+    }
 
 export type CollisionDebugBody = CollisionDebugMapBody | CollisionDebugEntityBody
+
+export interface CollisionDebugPair {
+  id: string
+  a: string
+  b: string
+  overlap: number
+}
 
 export interface CollisionDebugSnapshot {
   tick: number
   bodies: CollisionDebugBody[]
+  pairs: CollisionDebugPair[]
 }
 
 /**

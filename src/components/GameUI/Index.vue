@@ -6,7 +6,7 @@
     ></slot>
 
     <div class="absolute inset-0 z-[1] pointer-events-none">
-      <!-- <div class="absolute left-3 top-3 flex items-start gap-3 pointer-events-auto">
+      <div class="absolute left-3 top-3 flex items-start gap-3 pointer-events-auto">
         <PlayerStatusPanel
           :player-name="playerName"
           :zone="zone"
@@ -25,11 +25,17 @@
           :position="position"
           :facing="facing"
           :active-quest="activeQuest"
+          :debug="debugState"
           @togglePause="togglePause"
           @reset="resetDemoState"
           @openSettings="showSettings = true"
           @toggleDebug="showDebug = !showDebug"
           @clearMessages="messages = []"
+          @toggleDebugEnabled="toggleDebugEnabled"
+          @toggleMapColliders="toggleMapColliders"
+          @toggleEntityColliders="toggleEntityColliders"
+          @toggleAutoRefresh="toggleAutoRefresh"
+          @refreshDebug="refreshDebug"
         />
       </div>
 
@@ -80,7 +86,7 @@
         @save="showSettings = false"
         @updateQuality="graphicsQuality = $event"
         @updateVolume="volume = $event"
-      /> -->
+      />
     </div>
   </div>
 </template>
@@ -88,7 +94,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'GameUI' })
 
-import type { GameBridge, GameUIEvent } from 'game/type'
+import type { GameBridge, GameDebugState, GameUIEvent } from 'game/type'
 import { computed, ref, watchEffect } from 'vue'
 import ActionBar from './components/ActionBar.vue'
 import ControlPanel from './components/ControlPanel.vue'
@@ -119,6 +125,15 @@ const showMiniMap = ref(true)
 const showQuestPanel = ref(false)
 const showSettings = ref(false)
 const showDebug = ref(false)
+const debugState = ref<GameDebugState>({
+  enabled: false,
+  showMapColliders: true,
+  showEntityColliders: true,
+  autoRefresh: true,
+  colliderCount: 0,
+  pairCount: 0,
+  tick: 0,
+})
 
 const fps = ref(60)
 const position = ref({ x: 128, y: 64 })
@@ -165,6 +180,7 @@ function applyGameEvent(event: GameUIEvent) {
   hp.value = state.stats.hp
   mp.value = state.stats.mp
   coins.value = state.stats.coins
+  debugState.value = state.debug
 }
 
 watchEffect((onCleanup) => {
@@ -205,6 +221,15 @@ function resetDemoState() {
   questProgress.value = 2
   messages.value = []
   msgId = 0
+  debugState.value = {
+    enabled: false,
+    showMapColliders: true,
+    showEntityColliders: true,
+    autoRefresh: true,
+    colliderCount: 0,
+    pairCount: 0,
+    tick: 0,
+  }
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -282,5 +307,71 @@ function completeQuest() {
 function resetSettings() {
   graphicsQuality.value = 'high'
   volume.value = 70
+}
+
+function toggleDebugEnabled() {
+  if (props.bridge) {
+    props.bridge.dispatch({
+      type: 'setDebugOptions',
+      value: { enabled: !debugState.value.enabled },
+    })
+    return
+  }
+
+  debugState.value = {
+    ...debugState.value,
+    enabled: !debugState.value.enabled,
+  }
+}
+
+function toggleMapColliders() {
+  if (props.bridge) {
+    props.bridge.dispatch({
+      type: 'setDebugOptions',
+      value: { showMapColliders: !debugState.value.showMapColliders },
+    })
+    return
+  }
+
+  debugState.value = {
+    ...debugState.value,
+    showMapColliders: !debugState.value.showMapColliders,
+  }
+}
+
+function toggleEntityColliders() {
+  if (props.bridge) {
+    props.bridge.dispatch({
+      type: 'setDebugOptions',
+      value: { showEntityColliders: !debugState.value.showEntityColliders },
+    })
+    return
+  }
+
+  debugState.value = {
+    ...debugState.value,
+    showEntityColliders: !debugState.value.showEntityColliders,
+  }
+}
+
+function toggleAutoRefresh() {
+  if (props.bridge) {
+    props.bridge.dispatch({
+      type: 'setDebugOptions',
+      value: { autoRefresh: !debugState.value.autoRefresh },
+    })
+    return
+  }
+
+  debugState.value = {
+    ...debugState.value,
+    autoRefresh: !debugState.value.autoRefresh,
+  }
+}
+
+function refreshDebug() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'refreshDebugOverlay' })
+  }
 }
 </script>

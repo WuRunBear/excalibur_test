@@ -1,32 +1,13 @@
 import { Scene, type Engine } from 'excalibur'
 
-import { Player } from 'game/actors/player'
-import type { PlayerSnapshot } from 'game/type'
-
 /**
  * 主场景。
  *
  * 说明：
- * - 场景内保留本地玩家 Actor，用于本地渲染与移动
- * - 每帧通过 engine.onNetworkFrame(...) 回调，把联机通信驱动交给 MyGame
+ * - 场景只负责承载地图、服务端实体与调试对象
+ * - 每帧通过 engine.onNetworkFrame(...) 回调，把联机通信与渲染驱动交给 MyGame
  */
 export class Main extends Scene {
-  /**
-   * 场景初始化钩子（Excalibur 生命周期）。
-   *
-   * @param engine 运行该场景的引擎实例
-   */
-  override onInitialize(engine: Engine<any>): void {
-    const player = new Player({
-      reportSnapshot: (snapshot: PlayerSnapshot) => {
-        ;(engine as unknown as { onPlayerSnapshot?: (next: PlayerSnapshot) => void }).onPlayerSnapshot?.(
-          snapshot,
-        )
-      },
-    })
-    this.add(player)
-  }
-
   /**
    * 场景每帧更新（Excalibur 生命周期）。
    *

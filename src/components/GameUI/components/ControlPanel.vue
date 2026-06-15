@@ -46,6 +46,58 @@
         <div>状态: {{ isPaused ? '暂停' : '运行' }}</div>
         <div>任务: {{ activeQuest }}</div>
       </div>
+
+      <div class="mt-3 rounded-md border border-neutral-700 bg-black/20 px-2 py-2">
+        <div class="flex items-center justify-between">
+          <span class="font-semibold text-neutral-100">碰撞调试</span>
+          <span class="text-neutral-400">tick {{ debug.tick }}</span>
+        </div>
+        <div class="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-neutral-300">
+          <div>碰撞体: {{ debug.colliderCount }}</div>
+          <div>碰撞对: {{ debug.pairCount }}</div>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <Button
+            size="small"
+            variant="text"
+            :class="debug.enabled ? 'bg-emerald-600 text-white hover:bg-emerald-500' : ''"
+            @click="$emit('toggleDebugEnabled')"
+          >
+            {{ debug.enabled ? '调试开' : '调试关' }}
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            :class="debug.showMapColliders ? 'bg-sky-600 text-white hover:bg-sky-500' : ''"
+            @click="$emit('toggleMapColliders')"
+          >
+            地图
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            :class="debug.showEntityColliders ? 'bg-violet-600 text-white hover:bg-violet-500' : ''"
+            @click="$emit('toggleEntityColliders')"
+          >
+            实体
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            :class="debug.autoRefresh ? 'bg-amber-600 text-white hover:bg-amber-500' : ''"
+            @click="$emit('toggleAutoRefresh')"
+          >
+            {{ debug.autoRefresh ? '自动刷新' : '手动刷新' }}
+          </Button>
+          <Button
+            size="small"
+            variant="text"
+            @click="$emit('refreshDebug')"
+          >
+            刷新
+          </Button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -54,6 +106,8 @@
 defineOptions({ name: 'ControlPanel' })
 
 import { Button, DropDown } from '@pixelium/web-vue/es'
+
+import type { GameDebugState } from 'game/type'
 
 type MoreOptionIndex = 'settings' | 'debug' | 'clearMsg'
 
@@ -64,6 +118,7 @@ defineProps<{
   position: { x: number; y: number }
   facing: string
   activeQuest: string
+  debug: GameDebugState
 }>()
 
 const emit = defineEmits<{
@@ -72,6 +127,11 @@ const emit = defineEmits<{
   (e: 'openSettings'): void
   (e: 'toggleDebug'): void
   (e: 'clearMessages'): void
+  (e: 'toggleDebugEnabled'): void
+  (e: 'toggleMapColliders'): void
+  (e: 'toggleEntityColliders'): void
+  (e: 'toggleAutoRefresh'): void
+  (e: 'refreshDebug'): void
 }>()
 
 const moreOptions = [

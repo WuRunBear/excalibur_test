@@ -77,6 +77,20 @@ export class EntityStore {
   }
 
   /**
+   * 重置全部快照缓存。
+   *
+   * 用于断线、销毁或重新连接后清空旧的服务端状态。
+   */
+  reset() {
+    this.lastTick = 0
+    this.currentTick = 0
+    this.lastReceivedAtMs = 0
+    this.currentReceivedAtMs = 0
+    this.last.clear()
+    this.current.clear()
+  }
+
+  /**
    * 从 RoomState 写入最新快照，并维护 last/current 两份缓存。
    *
    * @param state Colyseus 房间状态（已自动合并增量补丁）

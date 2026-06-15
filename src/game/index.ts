@@ -1,31 +1,42 @@
-import { Engine, Keys } from 'excalibur'
+import { Actor, Engine, Keys, type Scene, type TileMap } from 'excalibur'
 import { createGameBridge } from './bridge'
-import { config } from './config'
+import { config, debugConfig } from './config'
 import { sceneList } from './scenes'
 import { loader } from './resources'
 
-import type { Facing, GameCommand, GameController, GameUIState, PlayerSnapshot } from './type'
+import type { Facing, GameCommand, GameController, GameUIState } from './type'
 
 import { GameConnection } from './net/connection'
-import type { ConnectionStatus, InputPayload } from './net/types'
+import type { CollisionDebugSnapshot, ConnectionStatus, InputPayload } from './net/types'
+import type { RoomState } from './net/schema'
+import { ActorManager } from './world/actorManager'
+import { EntityStore } from './world/entityStore'
+import { createMapTileMap, createServerColliderDebugActors } from './world/mapTileMap'
 
+const serverTickIntervalMs = 50
 /**
  * Excalibur 游戏引擎实现：
  * - 维护游戏内部状态（GameUIState）
  * - 通过 bridge 向 UI 推送状态/消息，接收 UI 指令
  *
  * 当前模式约定：
- * - 场景仍使用本地 Actor 渲染
- * - 保留联机通信能力：连接服务端并上行输入
- * - 不接入服务端下行状态的渲染逻辑
+ * - 场景完全以后端 RoomState 为权威进行渲染
+ * - 前端只负责输入上行、地图显示与插值表现
  */
 export class MyGame extends Engine {
   private readonly bridgeInternal: ReturnType<typeof createGameBridge>
+  private readonly entityStore = new EntityStore(serverTickIntervalMs)
+  private readonly actorManager = new ActorManager()
+  private readonly mainScene = sceneList.main
   private state: GameUIState
   private emitCooldownMs = 0
   private connectionStatus: ConnectionStatus = 'idle'
 
   private readonly connection = new GameConnection()
+  private localEntityId: number | undefined
+  private mapTileMap: TileMap | undefined
+  private debugActors: Actor[] = []
+  private unsubscribeCollisionDebugSnapshots?: () => void
 
   private inputSeq = 0
   private inputCooldownMs = 0
@@ -79,6 +90,13 @@ export class MyGame extends Engine {
    * 销毁游戏实例：停止引擎循环，并释放桥接层订阅。
    */
   destroy() {
+    this.actorManager.clear(this.mainScene)
+    this.detachMapTileMap()
+    this.clearDebugActors()
+    this.entityStore.reset()
+    this.localEntityId = undefined
+    this.unsubscribeCollisionDebugSnapshots?.()
+    this.unsubscribeCollisionDebugSnapshots = undefined
     this.stop()
     void this.connection.disconnect()
     this.bridgeInternal.destroy()
@@ -94,12 +112,14 @@ export class MyGame extends Engine {
    * @param deltaMs 距离上一帧的时间（毫秒）
    */
   onNetworkFrame(_scene: unknown, deltaMs: number) {
-    if (this.connectionStatus !== 'connected') {
-      this.emitNetworkUiState(deltaMs)
-      return
-    }
+    const scene = _scene as Scene
+    const nowMs = performance.now()
+    const snapshots = this.entityStore.sample(nowMs)
 
-    this.emitNetworkUiState(deltaMs)
+    this.actorManager.apply(scene, snapshots, this.localEntityId)
+    this.emitNetworkUiState(deltaMs, snapshots)
+
+    if (this.connectionStatus !== 'connected') return
 
     if (this.state.isPaused) return
     this.inputCooldownMs += deltaMs
@@ -115,7 +135,7 @@ export class MyGame extends Engine {
    *
    * 说明：
    * - 这里的默认值用于首屏占位
-   * - 后续由本地玩家快照与运行时状态逐步覆盖
+   * - 后续由服务端权威状态与本地连接状态逐步覆盖
    *
    * @returns 初始 UI 状态
    */
@@ -134,6 +154,15 @@ export class MyGame extends Engine {
         mpMax: 0,
         coins: 0,
       },
+      debug: {
+        enabled: debugConfig.drawServerColliders,
+        showMapColliders: true,
+        showEntityColliders: true,
+        autoRefresh: true,
+        colliderCount: 0,
+        pairCount: 0,
+        tick: 0,
+      },
     }
   }
 
@@ -142,7 +171,7 @@ export class MyGame extends Engine {
    *
    * 说明：
    * - joinOrCreate("game") 进入单房间
-   * - 仅保留连接与断线处理，不接入服务端状态渲染链路
+   * - 连接成功后拉取地图，并订阅 RoomState 驱动实体渲染
    */
   private async connectToServer() {
     if (this.connectionStatus === 'connecting' || this.connectionStatus === 'connected') return
@@ -150,34 +179,55 @@ export class MyGame extends Engine {
 
     try {
       const room = await this.connection.connect()
+      const runtime = await this.connection.fetchMapRuntime()
+      this.attachMapTileMap(runtime)
+      this.unsubscribeCollisionDebugSnapshots?.()
+      this.unsubscribeCollisionDebugSnapshots = this.connection.subscribeCollisionDebugSnapshots(
+        (snapshot) => {
+          this.applyDebugSnapshot(snapshot)
+        },
+      )
+      room.onStateChange((state) => {
+        this.handleRoomStateChange(state, room.sessionId)
+      })
       this.connectionStatus = 'connected'
       this.bridgeInternal.emitMessage('已连接到服务器')
 
       room.onLeave(() => {
-        this.connectionStatus = 'disconnected'
-        this.bridgeInternal.emitMessage('连接已断开')
+        this.handleDisconnected('连接已断开')
       })
+
+      if (this.state.debug.enabled) {
+        this.syncDebugSubscription()
+      }
     } catch {
-      this.connectionStatus = 'disconnected'
-      this.bridgeInternal.emitMessage('连接失败')
+      this.handleDisconnected('连接失败')
     }
   }
 
   /**
-   * 推送网络驱动的 UI 状态（带节流）。
+   * 根据服务端快照推送 UI 状态（带节流）。
    *
    * @param deltaMs 距离上一帧的时间（毫秒）
+   * @param snapshots 当前帧用于渲染的实体快照
    */
-  private emitNetworkUiState(deltaMs: number) {
+  private emitNetworkUiState(deltaMs: number, snapshots: ReturnType<EntityStore['sample']>) {
     const fps = deltaMs > 0 ? Math.round(1000 / deltaMs) : this.state.fps
+    const local =
+      typeof this.localEntityId === 'number' ? snapshots.get(this.localEntityId) : undefined
     const next = {
       ...this.state,
       fps,
       player: {
-        x: this.state.player.x,
-        y: this.state.player.y,
-        facing: this.state.player.facing,
+        x: local?.x ?? this.state.player.x,
+        y: local?.y ?? this.state.player.y,
+        facing: this.facing,
       },
+      stats: {
+        ...this.state.stats,
+        hp: local?.hp ?? this.state.stats.hp,
+      },
+      debug: this.state.debug,
     }
 
     this.state = next
@@ -189,20 +239,125 @@ export class MyGame extends Engine {
   }
 
   /**
-   * 接收本地玩家快照，并同步到 UI 状态。
+   * 处理一次房间状态变化。
    *
-   * @param snapshot 本地玩家快照
+   * @param state 服务端房间状态
+   * @param sessionId 当前客户端 sessionId
    */
-  onPlayerSnapshot(snapshot: PlayerSnapshot) {
-    this.facing = snapshot.facing
+  private handleRoomStateChange(state: RoomState, sessionId: string) {
+    this.localEntityId = state.players.get(sessionId)?.entityId
+    this.entityStore.updateFromRoomState(state, performance.now())
+  }
+
+  /**
+   * 处理断线后的本地清理。
+   *
+   * @param message 需要推送给 UI 的提示文案
+   */
+  private handleDisconnected(message: string) {
+    this.connectionStatus = 'disconnected'
+    this.localEntityId = undefined
+    this.unsubscribeCollisionDebugSnapshots?.()
+    this.unsubscribeCollisionDebugSnapshots = undefined
+    this.clearDebugActors()
+    this.entityStore.reset()
+    this.actorManager.clear(this.mainScene)
     this.state = {
       ...this.state,
-      player: {
-        x: snapshot.x,
-        y: snapshot.y,
-        facing: snapshot.facing,
+      stats: {
+        ...this.state.stats,
+        hp: 0,
+      },
+      debug: {
+        ...this.state.debug,
+        colliderCount: 0,
+        pairCount: 0,
+        tick: 0,
       },
     }
+    this.bridgeInternal.setState(this.state)
+    this.bridgeInternal.emitMessage(message)
+  }
+
+  /**
+   * 把服务端地图挂到主场景中。
+   *
+   * @param runtime 服务端地图运行时数据
+   */
+  private attachMapTileMap(runtime: Awaited<ReturnType<GameConnection['fetchMapRuntime']>>) {
+    this.detachMapTileMap()
+    this.mapTileMap = createMapTileMap(runtime)
+    this.mainScene.add(this.mapTileMap)
+  }
+
+  /**
+   * 从主场景移除已挂载的地图。
+   */
+  private detachMapTileMap() {
+    if (!this.mapTileMap) return
+    this.mainScene.remove(this.mapTileMap)
+    this.mapTileMap = undefined
+  }
+
+  /**
+   * 同步当前调试订阅状态到服务端。
+   */
+  private syncDebugSubscription() {
+    if (!this.state.debug.enabled) {
+      this.connection.unsubscribeCollisionDebugStream()
+      return
+    }
+
+    if (this.state.debug.autoRefresh) {
+      this.connection.subscribeCollisionDebugStream()
+      return
+    }
+
+    this.connection.unsubscribeCollisionDebugStream()
+  }
+
+  /**
+   * 把服务端碰撞体快照渲染到主场景。
+   *
+   * @param snapshot 服务端碰撞调试快照
+   */
+  private applyDebugSnapshot(snapshot: CollisionDebugSnapshot) {
+    const bodies = snapshot.bodies.filter((body) => {
+      if (body.kind === 'map') return this.state.debug.showMapColliders
+      return this.state.debug.showEntityColliders
+    })
+
+    this.clearDebugActors()
+    this.debugActors = createServerColliderDebugActors({
+      tick: snapshot.tick,
+      pairs: snapshot.pairs,
+      bodies,
+    })
+
+    for (const actor of this.debugActors) {
+      this.mainScene.add(actor)
+    }
+
+    this.state = {
+      ...this.state,
+      debug: {
+        ...this.state.debug,
+        colliderCount: bodies.length,
+        pairCount: snapshot.pairs.length,
+        tick: snapshot.tick,
+      },
+    }
+    this.bridgeInternal.setState(this.state)
+  }
+
+  /**
+   * 清理主场景中的调试碰撞体。
+   */
+  private clearDebugActors() {
+    for (const actor of this.debugActors) {
+      this.mainScene.remove(actor)
+    }
+    this.debugActors = []
   }
 
   /**
@@ -273,6 +428,37 @@ export class MyGame extends Engine {
 
     if (command.type === 'reset') {
       this.bridgeInternal.emitMessage('服务端未提供重置能力')
+      return
+    }
+
+    if (command.type === 'setDebugOptions') {
+      const nextDebug = { ...this.state.debug, ...command.value }
+      this.state = { ...this.state, debug: nextDebug }
+      this.bridgeInternal.setState(this.state)
+
+      if (!nextDebug.enabled) {
+        this.connection.unsubscribeCollisionDebugStream()
+        this.clearDebugActors()
+        this.state = {
+          ...this.state,
+          debug: {
+            ...nextDebug,
+            colliderCount: 0,
+            pairCount: 0,
+            tick: 0,
+          },
+        }
+        this.bridgeInternal.setState(this.state)
+        return
+      }
+
+      this.syncDebugSubscription()
+      this.connection.requestCollisionDebugSnapshot()
+      return
+    }
+
+    if (command.type === 'refreshDebugOverlay') {
+      this.connection.requestCollisionDebugSnapshot()
       return
     }
 
