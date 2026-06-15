@@ -19,6 +19,36 @@ export class ActorManager {
   private readonly actorsById = new Map<number, EntityActor>()
 
   /**
+   * 根据实体快照创建一个渲染 Actor。
+   *
+   * @param snapshot 实体快照
+   * @param localEntityId 本地玩家实体 id（用于高亮显示）
+   * @returns 新建的实体 Actor
+   */
+  private createActor(snapshot: EntitySnapshot, localEntityId: number | undefined) {
+    const color = localEntityId === snapshot.id ? Color.Cyan : Color.Orange
+
+    return snapshot.shape === 0
+      ? new EntityActor({
+          entityId: snapshot.id,
+          x: snapshot.x,
+          y: snapshot.y,
+          color,
+          shape: 0,
+          radius: snapshot.radius,
+        })
+      : new EntityActor({
+          entityId: snapshot.id,
+          x: snapshot.x,
+          y: snapshot.y,
+          color,
+          shape: 1,
+          w: snapshot.w,
+          h: snapshot.h,
+        })
+  }
+
+  /**
    * 应用一次快照：创建/更新/删除 Actor。
    *
    * @param scene 目标场景
@@ -32,15 +62,15 @@ export class ActorManager {
       alive.add(id)
       let actor = this.actorsById.get(id)
 
-      if (!actor) {
-        const color = localEntityId === id ? Color.Cyan : Color.Orange
-        actor = new EntityActor({ entityId: id, x: snapshot.x, y: snapshot.y, color })
+      if (!actor || !actor.matchesRender(snapshot.shape, snapshot.radius, snapshot.w, snapshot.h)) {
+        if (actor) scene.remove(actor)
+        actor = this.createActor(snapshot, localEntityId)
         this.actorsById.set(id, actor)
         scene.add(actor)
-      } else {
-        actor.pos.x = snapshot.x
-        actor.pos.y = snapshot.y
       }
+
+      actor.pos.x = snapshot.x
+      actor.pos.y = snapshot.y
     }
 
     for (const [id, actor] of this.actorsById) {

@@ -1,18 +1,32 @@
 import type { RoomState } from 'game/net/schema'
 
 /**
+ * 实体形状类型。
+ *
+ * 约定：
+ * - 0 表示圆形
+ * - 1 表示矩形
+ */
+export type EntityShape = 0 | 1
+
+/**
  * 实体的可渲染快照（对外只暴露 UI/渲染需要的字段）。
  *
  * 说明：
  * - id 是服务端 NetworkId（稳定）
  * - x/y 为世界坐标
  * - hp 为生命值（服务端权威）
+ * - shape/radius/w/h 用于前端按服务端形状与尺寸渲染
  */
 export interface EntitySnapshot {
   id: number
   x: number
   y: number
   hp: number
+  shape: EntityShape
+  radius: number
+  w: number
+  h: number
 }
 
 /**
@@ -143,6 +157,10 @@ export class EntityStore {
         x: lerp(prev.x, curr.x, t),
         y: lerp(prev.y, curr.y, t),
         hp: curr.hp,
+        shape: curr.shape,
+        radius: curr.radius,
+        w: curr.w,
+        h: curr.h,
       })
     }
 
@@ -164,6 +182,10 @@ export class EntityStore {
         x: entity.x,
         y: entity.y,
         hp: entity.hp,
+        shape: entity.shape as EntityShape,
+        radius: entity.radius,
+        w: entity.w,
+        h: entity.h,
       })
     })
 
