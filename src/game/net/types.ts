@@ -84,7 +84,8 @@ export interface CollisionDebugPair {
 
 export interface CollisionDebugSnapshot {
   tick: number
-  bodies: CollisionDebugBody[]
+  mapBodies?: CollisionDebugMapBody[]
+  entityBodies: CollisionDebugEntityBody[]
   pairs: CollisionDebugPair[]
 }
 

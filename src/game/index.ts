@@ -7,11 +7,17 @@ import { loader } from './resources'
 import type { Facing, GameCommand, GameController, GameUIState } from './type'
 
 import { GameConnection } from './net/connection'
-import type { CollisionDebugSnapshot, ConnectionStatus, InputPayload } from './net/types'
+import type {
+  CollisionDebugEntityBody,
+  CollisionDebugMapBody,
+  CollisionDebugSnapshot,
+  ConnectionStatus,
+  InputPayload,
+} from './net/types'
 import type { RoomState } from './net/schema'
 import { ActorManager } from './world/actorManager'
 import { EntityStore } from './world/entityStore'
-import { createMapTileMap, createServerColliderDebugActors } from './world/mapTileMap'
+import { createMapTileMap, createServerColliderDebugActor } from './world/mapTileMap'
 
 const serverTickIntervalMs = 50
 /**
@@ -35,7 +41,12 @@ export class MyGame extends Engine {
   private readonly connection = new GameConnection()
   private localEntityId: number | undefined
   private mapTileMap: TileMap | undefined
-  private debugActors: Actor[] = []
+  private mapDebugActors: Actor[] = []
+  private entityDebugActors = new Map<number, Actor>()
+  private entityDebugActorMeta = new Map<
+    number,
+    { shape: 'circle'; r: number } | { shape: 'box'; width: number; height: number }
+  >()
   private unsubscribeCollisionDebugSnapshots?: () => void
 
   private inputSeq = 0
@@ -322,27 +333,16 @@ export class MyGame extends Engine {
    * @param snapshot 服务端碰撞调试快照
    */
   private applyDebugSnapshot(snapshot: CollisionDebugSnapshot) {
-    const bodies = snapshot.bodies.filter((body) => {
-      if (body.kind === 'map') return this.state.debug.showMapColliders
-      return this.state.debug.showEntityColliders
-    })
-
-    this.clearDebugActors()
-    this.debugActors = createServerColliderDebugActors({
-      tick: snapshot.tick,
-      pairs: snapshot.pairs,
-      bodies,
-    })
-
-    for (const actor of this.debugActors) {
-      this.mainScene.add(actor)
+    if (snapshot.mapBodies) {
+      this.replaceMapDebugActors(snapshot.mapBodies)
     }
+    this.syncEntityDebugActors(snapshot.entityBodies)
 
     this.state = {
       ...this.state,
       debug: {
         ...this.state.debug,
-        colliderCount: bodies.length,
+        colliderCount: this.getVisibleDebugColliderCount(snapshot.entityBodies.length),
         pairCount: snapshot.pairs.length,
         tick: snapshot.tick,
       },
@@ -354,10 +354,155 @@ export class MyGame extends Engine {
    * 清理主场景中的调试碰撞体。
    */
   private clearDebugActors() {
-    for (const actor of this.debugActors) {
+    this.detachDebugActors(this.mapDebugActors)
+    this.mapDebugActors = []
+
+    for (const actor of this.entityDebugActors.values()) {
       this.mainScene.remove(actor)
     }
-    this.debugActors = []
+    this.entityDebugActors.clear()
+    this.entityDebugActorMeta.clear()
+  }
+
+  /**
+   * 计算当前需要展示到 UI 的碰撞体数量。
+   *
+   * @param entityCount 当前帧实体碰撞体数量
+   * @returns 根据可见性开关折算后的碰撞体数量
+   */
+  private getVisibleDebugColliderCount(entityCount: number) {
+    const mapCount = this.state.debug.showMapColliders ? this.mapDebugActors.length : 0
+    const visibleEntityCount = this.state.debug.showEntityColliders ? entityCount : 0
+    return mapCount + visibleEntityCount
+  }
+
+  /**
+   * 批量把调试 Actor 挂到主场景。
+   *
+   * @param actors 需要挂载的 Actor 列表
+   */
+  private attachDebugActors(actors: Iterable<Actor>) {
+    for (const actor of actors) {
+      this.mainScene.add(actor)
+    }
+  }
+
+  /**
+   * 批量把调试 Actor 从主场景移除。
+   *
+   * @param actors 需要移除的 Actor 列表
+   */
+  private detachDebugActors(actors: Iterable<Actor>) {
+    for (const actor of actors) {
+      this.mainScene.remove(actor)
+    }
+  }
+
+  /**
+   * 用最新地图碰撞体替换静态调试层。
+   *
+   * @param mapBodies 地图碰撞体列表
+   */
+  private replaceMapDebugActors(mapBodies: CollisionDebugMapBody[]) {
+    this.detachDebugActors(this.mapDebugActors)
+    this.mapDebugActors = mapBodies.map((body) => createServerColliderDebugActor(body))
+    if (this.state.debug.showMapColliders) {
+      this.attachDebugActors(this.mapDebugActors)
+    }
+  }
+
+  /**
+   * 按实体编号增量同步动态调试层。
+   *
+   * @param entityBodies 实体碰撞体列表
+   */
+  private syncEntityDebugActors(entityBodies: CollisionDebugEntityBody[]) {
+    const activeEntityIds = new Set<number>()
+
+    for (const body of entityBodies) {
+      activeEntityIds.add(body.eid)
+      const actor = this.entityDebugActors.get(body.eid)
+      const meta = this.entityDebugActorMeta.get(body.eid)
+      const shouldRecreate =
+        !actor ||
+        !meta ||
+        meta.shape !== body.shape ||
+        (body.shape === 'circle' && meta.shape === 'circle' && meta.r !== body.r) ||
+        (body.shape === 'box' &&
+          meta.shape === 'box' &&
+          (meta.width !== body.width || meta.height !== body.height))
+
+      if (shouldRecreate) {
+        this.replaceEntityDebugActor(body)
+        continue
+      }
+
+      this.updateEntityDebugActorPosition(actor, body)
+    }
+
+    for (const [eid, actor] of this.entityDebugActors) {
+      if (activeEntityIds.has(eid)) continue
+      this.mainScene.remove(actor)
+      this.entityDebugActors.delete(eid)
+      this.entityDebugActorMeta.delete(eid)
+    }
+  }
+
+  /**
+   * 用新的实体碰撞体 Actor 替换旧实例。
+   *
+   * @param body 实体碰撞体数据
+   */
+  private replaceEntityDebugActor(body: CollisionDebugEntityBody) {
+    const previous = this.entityDebugActors.get(body.eid)
+    if (previous) {
+      this.mainScene.remove(previous)
+    }
+
+    const actor = createServerColliderDebugActor(body)
+    this.entityDebugActors.set(body.eid, actor)
+    this.entityDebugActorMeta.set(
+      body.eid,
+      body.shape === 'circle'
+        ? { shape: 'circle', r: body.r }
+        : { shape: 'box', width: body.width, height: body.height },
+    )
+
+    if (this.state.debug.showEntityColliders) {
+      this.mainScene.add(actor)
+    }
+  }
+
+  /**
+   * 仅更新已存在实体调试 Actor 的位置，避免反复重建对象。
+   *
+   * @param actor 已存在的调试 Actor
+   * @param body 最新实体碰撞体数据
+   */
+  private updateEntityDebugActorPosition(actor: Actor, body: CollisionDebugEntityBody) {
+    if (body.shape === 'circle') {
+      actor.pos.x = body.x
+      actor.pos.y = body.y
+      return
+    }
+
+    actor.pos.x = body.x + body.width * 0.5
+    actor.pos.y = body.y + body.height * 0.5
+  }
+
+  /**
+   * 根据当前可见性开关刷新调试层挂载状态。
+   */
+  private refreshDebugActorVisibility() {
+    this.detachDebugActors(this.mapDebugActors)
+    this.detachDebugActors(this.entityDebugActors.values())
+
+    if (this.state.debug.showMapColliders) {
+      this.attachDebugActors(this.mapDebugActors)
+    }
+    if (this.state.debug.showEntityColliders) {
+      this.attachDebugActors(this.entityDebugActors.values())
+    }
   }
 
   /**
@@ -433,9 +578,6 @@ export class MyGame extends Engine {
 
     if (command.type === 'setDebugOptions') {
       const nextDebug = { ...this.state.debug, ...command.value }
-      this.state = { ...this.state, debug: nextDebug }
-      this.bridgeInternal.setState(this.state)
-
       if (!nextDebug.enabled) {
         this.connection.unsubscribeCollisionDebugStream()
         this.clearDebugActors()
@@ -451,6 +593,16 @@ export class MyGame extends Engine {
         this.bridgeInternal.setState(this.state)
         return
       }
+
+      this.state = {
+        ...this.state,
+        debug: {
+          ...nextDebug,
+          colliderCount: this.getVisibleDebugColliderCount(this.entityDebugActors.size),
+        },
+      }
+      this.refreshDebugActorVisibility()
+      this.bridgeInternal.setState(this.state)
 
       this.syncDebugSubscription()
       this.connection.requestCollisionDebugSnapshot()
