@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
 import { readFileSync } from 'node:fs'
 
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 import vueDevTools from 'vite-plugin-vue-devtools'
@@ -36,29 +36,44 @@ function toBName(value: string) {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
-  define: {
-    __APP_INFO__: JSON.stringify({
-      name: pkg.name ?? 'app',
-      shortName: toShortName(pkg.name ?? 'app'),
-      BName: toBName(pkg.name ?? 'app'),
-      version: pkg.version ?? '0.0.0',
-      buildTime: new Date().toISOString(),
-    }),
-  },
-  plugins: [
-    tailwindcss(),
-    vue(),
-    vueJsx(),
-    vueDevTools(),
-  ],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      game: fileURLToPath(new URL('./src/game', import.meta.url)),
-      layouts: fileURLToPath(new URL('./src/layouts', import.meta.url)),
-      views: fileURLToPath(new URL('./src/views', import.meta.url)),
-      components: fileURLToPath(new URL('./src/components', import.meta.url)),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const allowedHostsRaw = env.VITE_ALLOWED_HOSTS?.trim()
+  const allowedHosts =
+    !allowedHostsRaw
+      ? undefined
+      : allowedHostsRaw === 'all'
+        ? true
+        : allowedHostsRaw
+            .split(',')
+            .map((v) => v.trim())
+            .filter(Boolean)
+
+  return {
+    define: {
+      __APP_INFO__: JSON.stringify({
+        name: pkg.name ?? 'app',
+        shortName: toShortName(pkg.name ?? 'app'),
+        BName: toBName(pkg.name ?? 'app'),
+        version: pkg.version ?? '0.0.0',
+        buildTime: new Date().toISOString(),
+      }),
     },
-  },
+    server: allowedHosts ? { allowedHosts } : undefined,
+    plugins: [
+      tailwindcss(),
+      vue(),
+      vueJsx(),
+      vueDevTools(),
+    ],
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        game: fileURLToPath(new URL('./src/game', import.meta.url)),
+        layouts: fileURLToPath(new URL('./src/layouts', import.meta.url)),
+        views: fileURLToPath(new URL('./src/views', import.meta.url)),
+        components: fileURLToPath(new URL('./src/components', import.meta.url)),
+      },
+    },
+  }
 })
