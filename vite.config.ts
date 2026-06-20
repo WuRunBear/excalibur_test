@@ -35,11 +35,19 @@ function toBName(value: string) {
   return parts
 }
 
+function toHostValue(value?: string): true | string | undefined {
+  const host = value?.trim()
+  if (!host) return undefined
+  return host === 'true' ? true : host
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const allowedHostsRaw = env.VITE_ALLOWED_HOSTS?.trim()
-  const allowedHosts =
+  const devHost = toHostValue(env.VITE_DEV_HOST)
+  const previewHost = toHostValue(env.VITE_PREVIEW_HOST)
+  const allowedHosts: true | string[] | undefined =
     !allowedHostsRaw
       ? undefined
       : allowedHostsRaw === 'all'
@@ -48,6 +56,13 @@ export default defineConfig(({ mode }) => {
             .split(',')
             .map((v) => v.trim())
             .filter(Boolean)
+  const server =
+    allowedHosts || devHost ? { ...(allowedHosts ? { allowedHosts } : {}), ...(devHost ? { host: devHost } : {}) } : undefined
+  const preview = previewHost
+    ? {
+        host: previewHost,
+      }
+    : undefined
 
   return {
     define: {
@@ -59,7 +74,8 @@ export default defineConfig(({ mode }) => {
         buildTime: new Date().toISOString(),
       }),
     },
-    server: allowedHosts ? { allowedHosts } : undefined,
+    preview,
+    server,
     plugins: [
       tailwindcss(),
       vue(),
