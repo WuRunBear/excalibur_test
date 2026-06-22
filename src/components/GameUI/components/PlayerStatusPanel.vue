@@ -1,17 +1,18 @@
 <template>
   <div class="rounded-lg border border-neutral-200 bg-white/85 px-3 py-3 shadow-sm backdrop-blur">
-    <div class="flex items-center gap-2">
-      <Avatar
-        bordered
-        :size="28"
-        aria-label="玩家头像"
-      >
-        <span class="text-xs font-semibold">P</span>
-      </Avatar>
-      <div class="min-w-0">
-        <div class="truncate text-sm font-semibold text-neutral-900">{{ playerName }}</div>
-        <div class="text-xs text-neutral-500">Lv. {{ level }} · {{ zone }}</div>
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <Avatar bordered :size="28" aria-label="玩家头像">
+          <span class="text-xs font-semibold">P</span>
+        </Avatar>
+        <div class="min-w-0">
+          <div class="truncate text-sm font-semibold text-neutral-900">{{ playerName }}</div>
+          <div class="text-xs text-neutral-500">Lv. {{ level }} · {{ zone }}</div>
+        </div>
       </div>
+      <Button size="small" variant="text" @click="$emit('openSettings')">
+        ⚙
+      </Button>
     </div>
 
     <div class="mt-3 grid gap-2">
@@ -21,10 +22,7 @@
           <span>{{ hp }}/{{ hpMax }}</span>
         </div>
         <div class="mt-1 h-2 w-56 overflow-hidden rounded bg-neutral-200">
-          <div
-            class="h-full bg-rose-500 transition-[width] duration-200"
-            :style="{ width: hpPercent + '%' }"
-          ></div>
+          <div class="h-full bg-rose-500 transition-[width] duration-200" :style="{ width: hpPercent + '%' }"></div>
         </div>
       </div>
 
@@ -34,10 +32,7 @@
           <span>{{ mp }}/{{ mpMax }}</span>
         </div>
         <div class="mt-1 h-2 w-56 overflow-hidden rounded bg-neutral-200">
-          <div
-            class="h-full bg-sky-500 transition-[width] duration-200"
-            :style="{ width: mpPercent + '%' }"
-          ></div>
+          <div class="h-full bg-sky-500 transition-[width] duration-200" :style="{ width: mpPercent + '%' }"></div>
         </div>
       </div>
 
@@ -53,7 +48,7 @@
 defineOptions({ name: 'PlayerStatusPanel' })
 
 import { computed } from 'vue'
-import { Avatar } from '@pixelium/web-vue/es'
+import { Avatar, Button } from '@pixelium/web-vue/es'
 
 const props = defineProps<{
   playerName: string
@@ -64,6 +59,10 @@ const props = defineProps<{
   mp: number
   mpMax: number
   coins: number
+}>()
+
+defineEmits<{
+  (e: 'openSettings'): void
 }>()
 
 function clamp(n: number, min: number, max: number) {

@@ -1,61 +1,27 @@
 <template>
   <div
-    class="absolute bottom-3 left-1/2 w-[min(720px,calc(100%-1.5rem))] -translate-x-1/2 pointer-events-auto"
+    class="absolute bottom-3 left-1/2 w-[min(480px,calc(100%-1.5rem))] -translate-x-1/2 pointer-events-auto"
   >
-    <div class="rounded-lg border border-neutral-200 bg-white/85 px-3 py-3 shadow-sm backdrop-blur">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <Button
-            size="small"
-            @click="$emit('dealDamage')"
-          >
-            受伤
-          </Button>
-          <Button
-            size="small"
-            variant="text"
-            @click="$emit('heal')"
-          >
-            治疗
-          </Button>
-          <Button
-            size="small"
-            @click="$emit('spendMana')"
-          >
-            施法
-          </Button>
-          <Button
-            size="small"
-            variant="text"
-            @click="$emit('recoverMana')"
-          >
-            回蓝
-          </Button>
-          <Button
-            size="small"
-            variant="text"
-            @click="$emit('earnCoins')"
-          >
-            拾取金币
-          </Button>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <Button
-            size="small"
-            variant="text"
-            @click="$emit('toggleQuestPanel')"
-          >
-            {{ showQuestPanel ? '隐藏任务' : '显示任务' }}
-          </Button>
-          <Button
-            size="small"
-            variant="text"
-            @click="$emit('toggleMiniMap')"
-          >
-            {{ showMiniMap ? '隐藏小地图' : '显示小地图' }}
-          </Button>
-        </div>
+    <div class="flex items-center justify-center gap-1">
+      <div
+        v-for="(slot, idx) in slots"
+        :key="idx"
+        class="relative flex h-12 w-12 items-center justify-center rounded border border-neutral-700 bg-neutral-900/70 text-lg shadow-sm backdrop-blur transition-colors hover:border-neutral-500"
+        :class="{ 'border-amber-500': idx === activeSlot }"
+        @click="activeSlot = idx"
+      >
+        <span v-if="slot">{{ slot.icon }}</span>
+        <span
+          v-if="slot?.count && slot.count > 1"
+          class="absolute bottom-0.5 right-1 text-[10px] font-semibold text-white drop-shadow"
+        >
+          {{ slot.count }}
+        </span>
+        <span
+          class="absolute -top-2 left-1 text-[9px] text-neutral-400"
+        >
+          {{ idx + 1 }}
+        </span>
       </div>
     </div>
   </div>
@@ -64,20 +30,23 @@
 <script setup lang="ts">
 defineOptions({ name: 'ActionBar' })
 
-import { Button } from '@pixelium/web-vue/es'
+import { ref } from 'vue'
 
-defineProps<{
-  showQuestPanel: boolean
-  showMiniMap: boolean
-}>()
+interface ItemSlot {
+  icon: string
+  count?: number
+}
 
-defineEmits<{
-  (e: 'dealDamage'): void
-  (e: 'heal'): void
-  (e: 'spendMana'): void
-  (e: 'recoverMana'): void
-  (e: 'earnCoins'): void
-  (e: 'toggleQuestPanel'): void
-  (e: 'toggleMiniMap'): void
-}>()
+const activeSlot = ref(0)
+
+const slots = ref<(ItemSlot | null)[]>([
+  { icon: '🧪', count: 5 },
+  { icon: '🍖', count: 3 },
+  { icon: '⚔️' },
+  null,
+  null,
+  null,
+  null,
+  null,
+])
 </script>

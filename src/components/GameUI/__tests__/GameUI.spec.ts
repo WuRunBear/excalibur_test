@@ -7,16 +7,12 @@ vi.mock('@pixelium/web-vue/es', () => {
     name: 'PxButton',
     template: '<button></button>',
   })
-  const DropDown = defineComponent({
-    name: 'PxDropDown',
-    template: '<div></div>',
-  })
   const Avatar = defineComponent({
     name: 'PxAvatar',
     template: '<div></div>',
   })
 
-  return { Button, DropDown, Avatar }
+  return { Button, Avatar }
 })
 
 const PlayerStatusPanelStub = defineComponent({
@@ -31,24 +27,12 @@ const PlayerStatusPanelStub = defineComponent({
     mpMax: { type: Number, required: true },
     coins: { type: Number, required: true },
   },
+  emits: ['openSettings'],
   template: '<div data-test="player-status"></div>',
 })
 
 const ActionBarStub = defineComponent({
   name: 'ActionBar',
-  emits: [
-    'toggleMiniMap',
-    'toggleQuestPanel',
-    'dealDamage',
-    'heal',
-    'spendMana',
-    'recoverMana',
-    'earnCoins',
-  ],
-  props: {
-    showQuestPanel: { type: Boolean, required: true },
-    showMiniMap: { type: Boolean, required: true },
-  },
   template: '<div data-test="action-bar"></div>',
 })
 
@@ -58,33 +42,11 @@ const MiniMapPanelStub = defineComponent({
   template: '<div data-test="mini-map"></div>',
 })
 
-const MessagePanelStub = defineComponent({
-  name: 'MessagePanel',
-  emits: ['add'],
-  props: {
-    messages: { type: Array, required: true },
-  },
-  template: '<div data-test="messages"></div>',
-})
-
-const ControlPanelStub = defineComponent({
-  name: 'ControlPanel',
-  emits: ['togglePause', 'reset', 'openSettings', 'toggleDebug', 'clearMessages'],
-  props: {
-    isPaused: { type: Boolean, required: true },
-    showDebug: { type: Boolean, required: true },
-    fps: { type: Number, required: true },
-    position: { type: Object, required: true },
-    facing: { type: String, required: true },
-    activeQuest: { type: String, required: true },
-  },
-  template: '<div data-test="control-panel"></div>',
-})
-
 const QuestPanelStub = defineComponent({
   name: 'QuestPanel',
-  emits: ['close', 'advance', 'complete'],
+  emits: ['toggleCollapse', 'advance', 'complete'],
   props: {
+    collapsed: { type: Boolean, required: true },
     activeQuest: { type: String, required: true },
     questDesc: { type: String, required: true },
     questProgress: { type: Number, required: true },
@@ -105,11 +67,6 @@ const SettingsModalStub = defineComponent({
   template: '<div data-test="settings"></div>',
 })
 
-const TipsPanelStub = defineComponent({
-  name: 'TipsPanel',
-  template: '<div data-test="tips"></div>',
-})
-
 async function mountGameUI() {
   const { default: GameUI } = await import('../Index.vue')
   return mount(GameUI, {
@@ -119,52 +76,35 @@ async function mountGameUI() {
     global: {
       stubs: {
         PlayerStatusPanel: PlayerStatusPanelStub,
-        ControlPanel: ControlPanelStub,
-        MessagePanel: MessagePanelStub,
         ActionBar: ActionBarStub,
         MiniMapPanel: MiniMapPanelStub,
         QuestPanel: QuestPanelStub,
         SettingsModal: SettingsModalStub,
-        TipsPanel: TipsPanelStub,
       },
     },
   })
 }
 
 describe('GameUI', () => {
-  it('默认显示小地图，并能通过 ActionBar 事件切换', async () => {
+  it('默认显示小地图，并能通过 MiniMapPanel 关闭事件隐藏', async () => {
     const wrapper = await mountGameUI()
 
     expect(wrapper.find('[data-test="mini-map"]').exists()).toBe(true)
 
-    wrapper.findComponent(ActionBarStub).vm.$emit('toggleMiniMap')
+    wrapper.findComponent(MiniMapPanelStub).vm.$emit('close')
     await wrapper.vm.$nextTick()
 
     expect(wrapper.find('[data-test="mini-map"]').exists()).toBe(false)
   })
 
-  it('能响应 ActionBar 的伤害事件并更新玩家血量', async () => {
+  it('能通过 QuestPanel 的 toggleCollapse 事件切换折叠状态', async () => {
     const wrapper = await mountGameUI()
 
-    const beforeHp = wrapper.findComponent(PlayerStatusPanelStub).props('hp')
-    wrapper.findComponent(ActionBarStub).vm.$emit('dealDamage')
+    expect(wrapper.findComponent(QuestPanelStub).props('collapsed')).toBe(false)
+
+    wrapper.findComponent(QuestPanelStub).vm.$emit('toggleCollapse')
     await wrapper.vm.$nextTick()
 
-    const afterHp = wrapper.findComponent(PlayerStatusPanelStub).props('hp')
-    expect(typeof beforeHp).toBe('number')
-    expect(typeof afterHp).toBe('number')
-    expect(afterHp).toBeLessThan(beforeHp)
-  })
-
-  it('能通过 MessagePanel 的 add 事件追加消息并限制数量', async () => {
-    const wrapper = await mountGameUI()
-
-    for (let i = 0; i < 40; i += 1) {
-      wrapper.findComponent(MessagePanelStub).vm.$emit('add', `msg-${i}`)
-      await wrapper.vm.$nextTick()
-    }
-
-    const messages = wrapper.findComponent(MessagePanelStub).props('messages') as unknown[]
-    expect(messages.length).toBe(30)
+    expect(wrapper.findComponent(QuestPanelStub).props('collapsed')).toBe(true)
   })
 })
