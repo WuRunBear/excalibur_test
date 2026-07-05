@@ -1,17 +1,19 @@
 <template>
   <div
-    class="rounded-lg border border-neutral-200 bg-white/85 shadow-sm backdrop-blur"
+    class="relative h-20 w-28 rounded border border-neutral-700/40 bg-black/60 backdrop-blur"
     aria-label="小地图"
   >
-    <div class="flex items-center justify-between px-3 py-2">
-      <div class="text-xs font-semibold text-neutral-700">小地图</div>
-      <Button size="small" variant="text" @click="$emit('close')">
-        关闭
-      </Button>
-    </div>
     <div
-      class="h-32 w-44 bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.25),transparent_55%),radial-gradient(circle_at_70%_60%,rgba(16,185,129,0.22),transparent_60%),linear-gradient(135deg,rgba(0,0,0,0.04),rgba(0,0,0,0))]"
-    ></div>
+      class="h-full w-full bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.25),transparent_55%),radial-gradient(circle_at_70%_60%,rgba(16,185,129,0.22),transparent_60%)]"
+    />
+    <Button
+      size="small"
+      variant="text"
+      class="!absolute !top-0 !right-0 !text-[8px] !p-0 !min-w-3 !h-3"
+      @click="$emit('close')"
+    >
+      ✕
+    </Button>
   </div>
 </template>
 

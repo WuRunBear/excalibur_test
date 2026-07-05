@@ -7,7 +7,7 @@
 
     <div class="absolute inset-0 z-[1] pointer-events-none">
       <!-- 左上：角色状态 + 任务面板 -->
-      <div class="absolute left-3 top-3 grid gap-2 pointer-events-auto">
+      <div class="absolute left-2 top-2 grid gap-1 pointer-events-auto">
         <PlayerStatusPanel
           :player-name="playerName"
           :zone="zone"
@@ -34,7 +34,7 @@
       </div>
 
       <!-- 右上：小地图 -->
-      <div v-if="showMiniMap" class="absolute right-3 top-3 pointer-events-auto">
+      <div v-if="showMiniMap" class="absolute right-2 top-2 pointer-events-auto">
         <MiniMapPanel @close="showMiniMap = false" />
       </div>
 
@@ -47,11 +47,17 @@
         :graphics-quality="graphicsQuality"
         :graphics-quality-label="graphicsQualityLabel"
         :volume="volume"
+        :debug="debugState"
         @close="showSettings = false"
         @reset="resetSettings"
         @save="showSettings = false"
         @updateQuality="graphicsQuality = $event"
         @updateVolume="volume = $event"
+        @toggle-debug-enabled="toggleDebugEnabled"
+        @toggle-map-colliders="toggleMapColliders"
+        @toggle-entity-colliders="toggleEntityColliders"
+        @toggle-auto-refresh="toggleAutoRefresh"
+        @refresh-debug="refreshDebug"
       />
     </div>
   </div>
@@ -60,7 +66,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'GameUI' })
 
-import type { GameBridge, GameUIEvent } from 'game/type'
+import type { GameBridge, GameDebugState, GameUIEvent } from 'game/type'
 import { computed, ref, watchEffect } from 'vue'
 import ActionBar from './components/ActionBar.vue'
 import MiniMapPanel from './components/MiniMapPanel.vue'
@@ -85,10 +91,20 @@ const coins = ref(128)
 
 const showMiniMap = ref(true)
 const showSettings = ref(false)
-const questCollapsed = ref(false)
+const questCollapsed = ref(true)
+
+const debugState = ref<GameDebugState>({
+  enabled: false,
+  showMapColliders: true,
+  showEntityColliders: true,
+  autoRefresh: true,
+  colliderCount: 0,
+  pairCount: 0,
+  tick: 0,
+})
 
 const activeQuest = ref('寻找遗失的齿轮')
-const questDesc = ref('在地图上收集 5 个齿轮并返回村口交付。')
+const questDesc = ref('收集 5 个齿轮并返回村口。')
 const questGoal = 5
 const questProgress = ref(2)
 
@@ -106,9 +122,7 @@ const questPercent = computed(() =>
 )
 
 function applyGameEvent(event: GameUIEvent) {
-  if (event.type === 'message') {
-    return
-  }
+  if (event.type === 'message') return
 
   const state = event.state
   hp.value = state.stats.hp
@@ -119,6 +133,7 @@ function applyGameEvent(event: GameUIEvent) {
   level.value = state.stats.level
   hpMax.value = state.stats.hpMax
   mpMax.value = state.stats.mpMax
+  debugState.value = state.debug
 }
 
 watchEffect((onCleanup) => {
@@ -143,5 +158,43 @@ function completeQuest() {
 function resetSettings() {
   graphicsQuality.value = 'high'
   volume.value = 70
+}
+
+function toggleDebugEnabled() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'setDebugOptions', value: { enabled: !debugState.value.enabled } })
+    return
+  }
+  debugState.value = { ...debugState.value, enabled: !debugState.value.enabled }
+}
+
+function toggleMapColliders() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'setDebugOptions', value: { showMapColliders: !debugState.value.showMapColliders } })
+    return
+  }
+  debugState.value = { ...debugState.value, showMapColliders: !debugState.value.showMapColliders }
+}
+
+function toggleEntityColliders() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'setDebugOptions', value: { showEntityColliders: !debugState.value.showEntityColliders } })
+    return
+  }
+  debugState.value = { ...debugState.value, showEntityColliders: !debugState.value.showEntityColliders }
+}
+
+function toggleAutoRefresh() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'setDebugOptions', value: { autoRefresh: !debugState.value.autoRefresh } })
+    return
+  }
+  debugState.value = { ...debugState.value, autoRefresh: !debugState.value.autoRefresh }
+}
+
+function refreshDebug() {
+  if (props.bridge) {
+    props.bridge.dispatch({ type: 'refreshDebugOverlay' })
+  }
 }
 </script>

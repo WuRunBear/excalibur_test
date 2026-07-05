@@ -3,15 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 vi.mock('@pixelium/web-vue/es', () => {
-  const Button = defineComponent({
-    name: 'PxButton',
-    template: '<button></button>',
-  })
-  const Avatar = defineComponent({
-    name: 'PxAvatar',
-    template: '<div></div>',
-  })
-
+  const Button = defineComponent({ name: 'PxButton', template: '<button></button>' })
+  const Avatar = defineComponent({ name: 'PxAvatar', template: '<div></div>' })
   return { Button, Avatar }
 })
 
@@ -58,11 +51,18 @@ const QuestPanelStub = defineComponent({
 
 const SettingsModalStub = defineComponent({
   name: 'SettingsModal',
-  emits: ['close', 'reset', 'save', 'updateQuality', 'updateVolume'],
+  emits: [
+    'close', 'reset', 'save',
+    'updateQuality', 'updateVolume',
+    'toggleDebugEnabled', 'toggleMapColliders',
+    'toggleEntityColliders', 'toggleAutoRefresh',
+    'refreshDebug',
+  ],
   props: {
     graphicsQuality: { type: String, required: true },
     graphicsQualityLabel: { type: String, required: true },
     volume: { type: Number, required: true },
+    debug: { type: Object, required: true },
   },
   template: '<div data-test="settings"></div>',
 })
@@ -70,9 +70,7 @@ const SettingsModalStub = defineComponent({
 async function mountGameUI() {
   const { default: GameUI } = await import('../Index.vue')
   return mount(GameUI, {
-    slots: {
-      content: '<div data-test="content"></div>',
-    },
+    slots: { content: '<div data-test="content"></div>' },
     global: {
       stubs: {
         PlayerStatusPanel: PlayerStatusPanelStub,
@@ -86,7 +84,7 @@ async function mountGameUI() {
 }
 
 describe('GameUI', () => {
-  it('默认显示小地图，并能通过 MiniMapPanel 关闭事件隐藏', async () => {
+  it('默认显示小地图并可通过事件隐藏', async () => {
     const wrapper = await mountGameUI()
 
     expect(wrapper.find('[data-test="mini-map"]').exists()).toBe(true)
@@ -97,14 +95,26 @@ describe('GameUI', () => {
     expect(wrapper.find('[data-test="mini-map"]').exists()).toBe(false)
   })
 
-  it('能通过 QuestPanel 的 toggleCollapse 事件切换折叠状态', async () => {
+  it('任务面板默认折叠，可切换', async () => {
     const wrapper = await mountGameUI()
 
-    expect(wrapper.findComponent(QuestPanelStub).props('collapsed')).toBe(false)
+    expect(wrapper.findComponent(QuestPanelStub).props('collapsed')).toBe(true)
 
     wrapper.findComponent(QuestPanelStub).vm.$emit('toggleCollapse')
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.findComponent(QuestPanelStub).props('collapsed')).toBe(true)
+    expect(wrapper.findComponent(QuestPanelStub).props('collapsed')).toBe(false)
+  })
+
+  it('打开设置弹窗并传递 debug 状态', async () => {
+    const wrapper = await mountGameUI()
+
+    wrapper.findComponent(PlayerStatusPanelStub).vm.$emit('openSettings')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[data-test="settings"]').exists()).toBe(true)
+    const debug = wrapper.findComponent(SettingsModalStub).props('debug')
+    expect(debug).toBeDefined()
+    expect(debug.enabled).toBe(false)
   })
 })

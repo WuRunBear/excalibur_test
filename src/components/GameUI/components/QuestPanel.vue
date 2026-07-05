@@ -1,36 +1,21 @@
 <template>
-  <div class="rounded-lg border border-neutral-200 bg-white/85 shadow-sm backdrop-blur">
-    <div class="flex items-center justify-between px-3 py-2">
-      <div class="text-xs font-semibold text-neutral-700">任务</div>
-      <Button size="small" variant="text" @click="$emit('toggleCollapse')">
-        {{ collapsed ? '展开' : '收起' }}
-      </Button>
+  <div class="rounded border border-neutral-700/40 bg-black/60 px-1.5 py-1 backdrop-blur text-white text-[10px] w-48">
+    <div class="flex items-center justify-between" @click="$emit('toggleCollapse')">
+      <span class="font-semibold">📋 {{ activeQuest }}</span>
+      <span class="text-[9px] text-neutral-400 cursor-pointer">{{ collapsed ? '▸' : '▾' }}</span>
     </div>
 
-    <div v-if="!collapsed" class="px-3 pb-3 text-xs text-neutral-700">
-      <div class="rounded-md bg-white/50 px-3 py-2">
-        <div class="font-semibold">{{ activeQuest }}</div>
-        <div class="mt-1 text-neutral-600">{{ questDesc }}</div>
-        <div class="mt-2">
-          <div class="flex items-center justify-between text-[11px] text-neutral-600">
-            <span>进度</span>
-            <span>{{ questProgress }}/{{ questGoal }}</span>
-          </div>
-          <div class="mt-1 h-2 w-full overflow-hidden rounded bg-neutral-200">
-            <div
-              class="h-full bg-emerald-500 transition-[width] duration-200"
-              :style="{ width: questPercent + '%' }"
-            ></div>
-          </div>
-        </div>
+    <div v-if="!collapsed" class="mt-1">
+      <div class="h-1 rounded-full bg-neutral-700 overflow-hidden">
+        <div class="h-full bg-emerald-500 transition-[width] duration-200" :style="{ width: questPercent + '%' }" />
       </div>
-      <div class="mt-2 flex items-center justify-end gap-2">
-        <Button size="small" variant="text" @click="$emit('advance')">
-          推进
-        </Button>
-        <Button size="small" @click="$emit('complete')">
-          完成
-        </Button>
+      <div class="mt-0.5 flex items-center justify-between text-[9px] text-neutral-400">
+        <span>{{ questProgress }}/{{ questGoal }}</span>
+        <span>{{ questDesc }}</span>
+      </div>
+      <div class="mt-1 flex items-center justify-end gap-1">
+        <Button size="small" variant="text" class="!text-[9px] !py-0" @click.stop="$emit('advance')">推进</Button>
+        <Button size="small" class="!text-[9px] !py-0" @click.stop="$emit('complete')">完成</Button>
       </div>
     </div>
   </div>
