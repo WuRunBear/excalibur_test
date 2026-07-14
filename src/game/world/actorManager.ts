@@ -81,6 +81,15 @@ export class ActorManager {
   }
 
   /**
+   * 根据 entityId 获取对应的 Actor（用于设置相机跟随等）。
+   *
+   * @param entityId 实体 id
+   */
+  getActor(entityId: number) {
+    return this.actorsById.get(entityId)
+  }
+
+  /**
    * 清空场景中的全部实体 Actor（用于断线/切场景等场景重置）。
    *
    * @param scene 目标场景

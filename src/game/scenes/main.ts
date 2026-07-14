@@ -1,5 +1,7 @@
 import { Scene, type Engine } from 'excalibur'
 
+let logAccum = 0
+
 /**
  * 主场景。
  *
@@ -24,6 +26,14 @@ export class Main extends Scene {
       engine as unknown as { onNetworkFrame?: (scene: Scene, deltaMs: number) => void }
     ).onNetworkFrame
     handler?.call(engine, this, delta)
+
+    logAccum += delta
+    if (logAccum >= 1000) {
+      logAccum = 0
+      console.log(
+        `[camera] pos=(${this.camera.pos.x.toFixed(1)}, ${this.camera.pos.y.toFixed(1)}) zoom=${this.camera.zoom.toFixed(2)}`,
+      )
+    }
   }
 }
 

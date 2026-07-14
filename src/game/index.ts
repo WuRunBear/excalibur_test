@@ -39,6 +39,7 @@ export class MyGame extends Engine {
   private connectionStatus: ConnectionStatus = 'idle'
 
   private readonly connection = new GameConnection()
+  private readonly canvas: HTMLCanvasElement
   private localEntityId: number | undefined
   private mapTileMap: TileMap | undefined
   private mapDebugActors: Actor[] = []
@@ -48,6 +49,12 @@ export class MyGame extends Engine {
     { shape: 'circle'; r: number } | { shape: 'box'; width: number; height: number }
   >()
   private unsubscribeCollisionDebugSnapshots?: () => void
+
+  private isDragging = false
+  private dragInitialScreen = { x: 0, y: 0 }
+  private dragCurrentScreen = { x: 0, y: 0 }
+  private dragInitialCamera = { x: 0, y: 0 }
+  private manualCameraPos: { x: number; y: number } | null = null
 
   private inputSeq = 0
   private inputCooldownMs = 0
@@ -65,12 +72,15 @@ export class MyGame extends Engine {
       displayMode: config.displayMode,
     })
 
+    this.canvas = canvasElement
     this.state = this.createInitialState()
 
     this.bridgeInternal = createGameBridge({
       initialState: this.state,
       onCommand: (command) => this.onCommand(command),
     })
+
+    this.setupDragListeners()
   }
 
   /**
@@ -101,6 +111,7 @@ export class MyGame extends Engine {
    * 销毁游戏实例：停止引擎循环，并释放桥接层订阅。
    */
   destroy() {
+    this.teardownDragListeners()
     this.actorManager.clear(this.mainScene)
     this.detachMapTileMap()
     this.clearDebugActors()
@@ -128,6 +139,7 @@ export class MyGame extends Engine {
     const snapshots = this.entityStore.sample(nowMs)
 
     this.actorManager.apply(scene, snapshots, this.localEntityId)
+    this.updateCamera(scene)
     this.emitNetworkUiState(deltaMs, snapshots)
 
     if (this.connectionStatus !== 'connected') return
@@ -308,6 +320,86 @@ export class MyGame extends Engine {
     if (!this.mapTileMap) return
     this.mainScene.remove(this.mapTileMap)
     this.mapTileMap = undefined
+  }
+
+  private updateCamera(scene: Scene) {
+    if (this.isDragging) {
+      const zoom = scene.camera.zoom || 1
+      const dx = (this.dragCurrentScreen.x - this.dragInitialScreen.x) / zoom
+      const dy = (this.dragCurrentScreen.y - this.dragInitialScreen.y) / zoom
+      const cx = this.dragInitialCamera.x - dx
+      const cy = this.dragInitialCamera.y - dy
+      scene.camera.pos.x = cx
+      scene.camera.pos.y = cy
+      this.manualCameraPos = { x: cx, y: cy }
+      return
+    }
+    if (this.manualCameraPos) {
+      scene.camera.pos.x = this.manualCameraPos.x
+      scene.camera.pos.y = this.manualCameraPos.y
+      return
+    }
+    if (this.localEntityId === undefined) return
+    const localActor = this.actorManager.getActor(this.localEntityId)
+    if (!localActor) return
+    scene.camera.pos = localActor.pos.clone()
+  }
+
+  private setupDragListeners() {
+    this.canvas.addEventListener('pointerdown', this.onPointerDown)
+    this.canvas.addEventListener('pointermove', this.onPointerMove)
+    window.addEventListener('pointerup', this.onPointerUp)
+    this.canvas.addEventListener('wheel', this.onWheel, { passive: false })
+  }
+
+  private teardownDragListeners() {
+    this.canvas.removeEventListener('pointerdown', this.onPointerDown)
+    this.canvas.removeEventListener('pointermove', this.onPointerMove)
+    window.removeEventListener('pointerup', this.onPointerUp)
+    this.canvas.removeEventListener('wheel', this.onWheel)
+  }
+
+  private onPointerDown = (e: PointerEvent) => {
+    this.isDragging = true
+    this.dragInitialScreen = { x: e.clientX, y: e.clientY }
+    this.dragCurrentScreen = { x: e.clientX, y: e.clientY }
+    const cam = this.mainScene.camera
+    this.dragInitialCamera = { x: cam.pos.x, y: cam.pos.y }
+  }
+
+  private onPointerMove = (e: PointerEvent) => {
+    if (!this.isDragging) return
+    this.dragCurrentScreen = { x: e.clientX, y: e.clientY }
+  }
+
+  private onPointerUp = () => {
+    this.isDragging = false
+  }
+
+  private onWheel = (e: WheelEvent) => {
+    e.preventDefault()
+    const cam = this.mainScene.camera
+    const oldZoom = cam.zoom
+    const step = 0.1
+    const newZoom = Math.max(0.3, Math.min(5, oldZoom - Math.sign(e.deltaY) * step))
+    if (newZoom === oldZoom) return
+
+    const rect = this.canvas.getBoundingClientRect()
+    const scaleX = config.width / rect.width
+    const scaleY = config.height / rect.height
+    const mx = (e.clientX - rect.left) * scaleX
+    const my = (e.clientY - rect.top) * scaleY
+
+    const hw = config.width / 2
+    const hh = config.height / 2
+    const worldX = cam.pos.x + (mx - hw) / oldZoom
+    const worldY = cam.pos.y + (my - hh) / oldZoom
+
+    cam.zoom = newZoom
+    cam.pos.x = worldX - (mx - hw) / newZoom
+    cam.pos.y = worldY - (my - hh) / newZoom
+
+    this.manualCameraPos = { x: cam.pos.x, y: cam.pos.y }
   }
 
   /**
@@ -530,6 +622,7 @@ export class MyGame extends Engine {
     if (dx !== 0 || dy !== 0) {
       if (Math.abs(dx) > Math.abs(dy)) this.facing = dx > 0 ? '右' : '左'
       else this.facing = dy > 0 ? '下' : '上'
+      this.manualCameraPos = null
     }
 
     if (dx !== 0 && dy !== 0) {

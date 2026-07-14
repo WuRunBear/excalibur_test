@@ -179,13 +179,13 @@ export class EntityStore {
     state.entities.forEach((entity) => {
       map.set(entity.id, {
         id: entity.id,
-        x: entity.x,
-        y: entity.y,
-        hp: entity.hp,
-        shape: entity.shape as EntityShape,
-        radius: entity.radius,
-        w: entity.w,
-        h: entity.h,
+        x: entity.x ?? 0,
+        y: entity.y ?? 0,
+        hp: entity.hp ?? 0,
+        shape: (entity.shape ?? 0) as EntityShape,
+        radius: entity.radius ?? 0,
+        w: entity.w ?? 0,
+        h: entity.h ?? 0,
       })
     })
 
