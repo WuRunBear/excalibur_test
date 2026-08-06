@@ -8,23 +8,22 @@
 import { Schema, type, MapSchema } from '@colyseus/schema'
 
 export class EntityState extends Schema {
-  @type('uint32') public id!: number
-  @type('number') public x!: number
-  @type('number') public y!: number
-  @type('int32') public hp!: number
-  @type('uint8') public shape!: number
-  @type('number') public radius!: number
-  @type('number') public w!: number
-  @type('number') public h!: number
+  @type('uint32') public id: number = 0
+  @type({ map: 'number' }) public values = new MapSchema<number>()
+  @type({ map: 'string' }) public stringValues = new MapSchema<string>()
 }
 
 export class PlayerState extends Schema {
-  @type('string') public sessionId!: string
-  @type('uint32') public entityId!: number
+  @type('string') public sessionId: string = ''
+  @type('uint32') public entityId: number = 0
+  @type({ map: EntityState }) public visibleEntities = new MapSchema<EntityState>()
 }
 
 export class RoomState extends Schema {
-  @type('uint32') public tick!: number
-  @type({ map: PlayerState }) public players: MapSchema<PlayerState> = new MapSchema<PlayerState>()
-  @type({ map: EntityState }) public entities: MapSchema<EntityState> = new MapSchema<EntityState>()
+  @type('uint32') public tick: number = 0
+  @type('float64') public hour: number = 8
+  @type('uint8') public phase: number = 0
+  @type('string') public mapId: string = ''
+  @type({ map: PlayerState }) public players = new MapSchema<PlayerState>()
+  @type({ map: EntityState }) public entities = new MapSchema<EntityState>()
 }

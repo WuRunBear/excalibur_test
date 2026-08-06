@@ -69,7 +69,8 @@ export function createServerColliderDebugActor(body: CollisionDebugBody): Actor 
     new Rectangle({
       width: body.width,
       height: body.height,
-      color: body.kind === 'map' ? Color.fromRGB(0, 128, 255, 0.18) : Color.fromRGB(0, 255, 0, 0.18),
+      color:
+        body.kind === 'map' ? Color.fromRGB(0, 128, 255, 0.18) : Color.fromRGB(0, 255, 0, 0.18),
     }),
   )
   return actor

@@ -16,7 +16,7 @@ export interface PlayerSnapshot {
 }
 
 /**
- * 玩家面板属性（示例用，供 UI 展示）。
+ * 玩家面板属性（服务端权威，客户端仅展示）。
  */
 export interface PlayerStats {
   name: string
@@ -27,6 +27,51 @@ export interface PlayerStats {
   mp: number
   mpMax: number
   coins: number
+}
+
+/**
+ * 生存需求槽（协议 §4.2：hunger/thirst）。
+ */
+export interface UIStateNeeds {
+  name: string
+  current: number
+  max: number
+}
+
+/**
+ * 背包槽（协议 §4.1：固定 12 槽，空槽 kind=""）。
+ */
+export interface UIStateInventorySlot {
+  kind: string
+  count: number
+}
+
+/**
+ * 任务条目（协议 §4.7：state 0未接/1进行/2可交/3完成）。
+ */
+export interface UIStateQuest {
+  questId: string
+  state: number
+  count: number
+}
+
+/**
+ * 对话状态（协议 §4.6）。
+ */
+export interface UIStateDialogue {
+  npcId: number
+  treeId: string
+  nodeId: string
+  options: string[]
+}
+
+/**
+ * 装备槽（引用背包槽索引，-1=空）。
+ */
+export interface UIStateEquipment {
+  weaponSlot: number
+  toolSlot: number
+  armorSlot: number
 }
 
 /**
@@ -54,7 +99,17 @@ export interface GameUIState {
     y: number
     facing: Facing
   }
+  world: {
+    hour: number
+    phase: number
+    mapId: string
+  }
   stats: PlayerStats
+  needs: UIStateNeeds[]
+  inventory: UIStateInventorySlot[]
+  equipment: UIStateEquipment
+  quests: UIStateQuest[]
+  dialogue: UIStateDialogue | null
   debug: GameDebugState
 }
 
@@ -94,6 +149,13 @@ export type GameCommand =
   | { type: 'spendMana'; amount: number }
   | { type: 'recoverMana'; amount: number }
   | { type: 'earnCoins'; amount: number }
+  | { type: 'useItem'; slot: number }
+  | { type: 'dropItem'; slot: number }
+  | { type: 'transferItem'; slot: number; toSlot: number }
+  | { type: 'craftItem'; recipe: string }
+  | { type: 'placeItem'; slot: number }
+  | { type: 'deconstructItem'; target: number }
+  | { type: 'dialogueSelect'; option: number }
 
 /**
  * 取消订阅函数。

@@ -8,6 +8,7 @@ function createInitialState(): GameUIState {
     fps: 60,
     isPaused: false,
     player: { x: 0, y: 0, facing: '下' },
+    world: { hour: 8, phase: 0, mapId: 'generated-map' },
     stats: {
       name: 'tester',
       zone: 'zone',
@@ -17,6 +18,23 @@ function createInitialState(): GameUIState {
       mp: 5,
       mpMax: 5,
       coins: 0,
+    },
+    needs: [{ name: 'hunger', current: 80, max: 100 }],
+    inventory: Array.from({ length: 12 }, (_, i) => ({
+      kind: i === 0 ? 'wood' : '',
+      count: i === 0 ? 3 : 0,
+    })),
+    equipment: { weaponSlot: -1, toolSlot: -1, armorSlot: -1 },
+    quests: [],
+    dialogue: null,
+    debug: {
+      enabled: false,
+      showMapColliders: true,
+      showEntityColliders: true,
+      autoRefresh: true,
+      colliderCount: 0,
+      pairCount: 0,
+      tick: 0,
     },
   }
 }

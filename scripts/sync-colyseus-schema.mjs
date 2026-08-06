@@ -30,6 +30,18 @@ const source = path.resolve(
 )
 const target = path.resolve(projectRoot, 'src', 'game', 'net', 'schema.ts')
 
+let sourceStat
+try {
+  sourceStat = await fs.stat(source)
+} catch {
+  console.warn(`[schema:sync] 源文件不存在（${source}），跳过同步（保留现有 schema.ts）`)
+  process.exit(0)
+}
+if (!sourceStat.isFile()) {
+  console.warn(`[schema:sync] 源路径不是文件（${source}），跳过同步`)
+  process.exit(0)
+}
+
 await fs.mkdir(path.dirname(target), { recursive: true })
 await fs.copyFile(source, target)
 

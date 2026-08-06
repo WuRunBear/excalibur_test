@@ -13,12 +13,11 @@ const PlayerStatusPanelStub = defineComponent({
   props: {
     playerName: { type: String, required: true },
     zone: { type: String, required: true },
-    level: { type: Number, required: true },
     hp: { type: Number, required: true },
     hpMax: { type: Number, required: true },
-    mp: { type: Number, required: true },
-    mpMax: { type: Number, required: true },
-    coins: { type: Number, required: true },
+    needs: { type: Array, required: true },
+    hour: { type: Number, required: true },
+    phase: { type: Number, required: true },
   },
   emits: ['openSettings'],
   template: '<div data-test="player-status"></div>',
@@ -26,6 +25,11 @@ const PlayerStatusPanelStub = defineComponent({
 
 const ActionBarStub = defineComponent({
   name: 'ActionBar',
+  props: {
+    inventory: { type: Array, required: true },
+    activeSlot: { type: Number, required: true },
+  },
+  emits: ['useItem'],
   template: '<div data-test="action-bar"></div>',
 })
 
@@ -37,14 +41,10 @@ const MiniMapPanelStub = defineComponent({
 
 const QuestPanelStub = defineComponent({
   name: 'QuestPanel',
-  emits: ['toggleCollapse', 'advance', 'complete'],
+  emits: ['toggleCollapse'],
   props: {
     collapsed: { type: Boolean, required: true },
-    activeQuest: { type: String, required: true },
-    questDesc: { type: String, required: true },
-    questProgress: { type: Number, required: true },
-    questGoal: { type: Number, required: true },
-    questPercent: { type: Number, required: true },
+    quests: { type: Array, required: true },
   },
   template: '<div data-test="quest"></div>',
 })
@@ -52,10 +52,15 @@ const QuestPanelStub = defineComponent({
 const SettingsModalStub = defineComponent({
   name: 'SettingsModal',
   emits: [
-    'close', 'reset', 'save',
-    'updateQuality', 'updateVolume',
-    'toggleDebugEnabled', 'toggleMapColliders',
-    'toggleEntityColliders', 'toggleAutoRefresh',
+    'close',
+    'reset',
+    'save',
+    'updateQuality',
+    'updateVolume',
+    'toggleDebugEnabled',
+    'toggleMapColliders',
+    'toggleEntityColliders',
+    'toggleAutoRefresh',
     'refreshDebug',
   ],
   props: {
@@ -77,6 +82,9 @@ async function mountGameUI() {
         ActionBar: ActionBarStub,
         MiniMapPanel: MiniMapPanelStub,
         QuestPanel: QuestPanelStub,
+        CraftPanel: true,
+        DialoguePanel: true,
+        InventoryPanel: true,
         SettingsModal: SettingsModalStub,
       },
     },

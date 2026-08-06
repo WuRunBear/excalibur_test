@@ -382,3 +382,62 @@ export interface GameUIState {
 阶段 D（玩法 UI）  → type.ts + GameUI 面板（4 改 + 3 新）            [可验证：UI 真实状态]
 阶段 E（收尾）     → 测试/脚本/全量检查 + 手测清单
 ```
+
+---
+
+## 11. 实施记录（2026-08-06，与计划的偏差及发现的服务端问题）
+
+> 本节记录实际实施中与计划的差异、以及对部署服务端的实测结论，供后续排障。
+
+### 11.1 Schema 已按协议文档 §3.4 落地并连服验证
+
+- `values` 声明为 `@type({ map: 'number' })`（与 CLIENT-INTEGRATION.md §3.4 一致）。
+- 实测（vitest 直连 `wss://3001.op.ms7d99.com`）：握手成功、`tick/hour/phase/mapId/players/entities` 全部正确解码；
+  38 个世界实体按 §3.6 辨识全部正确（npc/resource/enemy/campfire/portal）。
+- 中途怀疑 `values` 是 float32（字节流里出现 `0xca` 前缀）——经核实这是 colyseus `encode.number`
+  的自适应编码（精度允许时用 float32，否则 float64），声明 `'number'` 即可，无需改动。
+
+### 11.2 服务端 bug：visibleEntities 内容解码失败（colyseus #935/#936）
+
+**现象**：`PlayerState.visibleEntities` 的 map key 能收到（数量随视野进出正确变化），
+但每个条目的内容（id/values/stringValues）解码为空壳，客户端日志反复出现
+`"refId" not found: xxx`。
+
+**根因**（已溯源到 colyseus 官方仓库）：
+- 部署服务端使用 `@view() @type({ map: EntityState }) visibleEntities`（per-client 过滤字段，
+  见服务端 slice-7 `PlayerState.ts` + `GameRoom.ts` 的 `StateView` 接线）。
+- 该机制在 `@colyseus/core` 0.17.43（2026-05-03 发布）存在已知缺陷：
+  - colyseus/colyseus#935「getFullState produces incomplete snapshot for second filtered client」
+  - 修复 PR colyseus/colyseus#936（2026-05-05 合并）「emit per-view ref introductions before encodeAll baseline」
+  - 同族问题 #818「StateView not found refId when decorating Map's」
+- **修复方式在服务端**：`@colyseus/core` 升级到 `>= 0.17.44` 并重部署即可；客户端无需改动。
+
+**客户端对策（已实现）**：`EntityStore.readEntities` 采用"非空且可解码优先"回退——
+`visibleEntities` 中至少一个条目能解出有效 `id` 时采信（兴趣裁剪路径），否则回退
+`state.entities` 全量广播。服务端修复后同代码路径自动切回。
+
+**当前影响**（服务端修复前）：
+- 世界渲染正常（`state.entities` 可完整解码，含 NPC/资源/火堆/传送门/敌怪）。
+- 本地玩家实体只存在于 `visibleEntities`（服务端设计如此），故玩家位置/背包/需求/任务/对话
+  UI 在服务端修复前拿不到数据（UI 已全部绑定真实状态，显示占位而非硬编码）。
+- `state.entities` 在兴趣裁剪开启时是启动时的陈旧快照（`applySnapshot` 走 interest 路径后
+  不再写 `state.entities`），动态实体（玩家移动、资源消耗）需等服务端修复后经
+  visibleEntities 呈现。
+
+### 11.3 其余与计划的差异
+
+| 计划条目 | 实施情况 |
+|---------|---------|
+| 阶段 B 键值表解析 | 按 §3.5 全部 key 实现（含 Needs/Inventory/Quest/Dialogue/Equipment/ItemMeta 等，实测未见的部分留兼容解析） |
+| §3.6 辨识 | `player` 判定改为"存在 `Health.current` 键 + 存在 Needs"，避免 hp=0 误判为 unknown |
+| 热键 C | 合成面板由 UI 按钮（🔨）开关；C 键给出提示消息（游戏域不直接操作 Vue 面板） |
+| 热键 B/G/1–6 | B=放置选中槽、G=丢弃选中槽、1–6=选中快捷槽，已实现 |
+| lint | 顺手格式化了 2 个既有文件（SettingsModal.vue / mapTileMap.ts），`pnpm lint` 全绿 |
+
+### 11.4 连服手测状态（服务端修复前的预期）
+
+- ✅ 进入世界：`/maps/runtime` 拉取成功、地图渲染、世界实体（静态）可见
+- ✅ 昼夜：hour/phase 驱动时间显示与夜晚变暗
+- ✅ 移动/采集/攻击/对话输入通道：协议就绪（服务端消费情况待修复后复测）
+- ⏳ 玩家自身状态（背包/需求/任务/对话/位置）：**阻塞于 11.2 的服务端 bug**
+

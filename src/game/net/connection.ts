@@ -1,7 +1,13 @@
 import { Client, type Room } from '@colyseus/sdk'
 
 import { gameServerHttpBaseUrl, gameServerUrl } from './config'
-import type { CollisionDebugSnapshot, InputPayload, MapRuntime, MapRuntimeResponse } from './types'
+import type {
+  CollisionDebugSnapshot,
+  CommandPayload,
+  InputPayload,
+  MapRuntime,
+  MapRuntimeResponse,
+} from './types'
 import type { RoomState } from './schema'
 
 /**
@@ -72,10 +78,23 @@ export class GameConnection {
   /**
    * 发送输入消息到服务端。
    *
-   * @param payload 输入负载（seq/moveX/moveY）
+   * @param payload 输入负载（seq/moveX/moveY/边沿信号）
    */
   sendInput(payload: InputPayload): void {
     this.roomInternal?.send('input', payload)
+  }
+
+  /**
+   * 发送离散玩法命令到服务端。
+   *
+   * 说明：
+   * - 对应协议 §2.2 的 "command" 通道（consume/drop/transfer/craft/equip/place/deconstruct/dialogue）
+   * - 命令失败无回执（服务端零副作用），以状态变化为准
+   *
+   * @param payload 命令负载
+   */
+  sendCommand(payload: CommandPayload): void {
+    this.roomInternal?.send('command', payload)
   }
 
   /**

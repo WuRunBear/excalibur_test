@@ -1,6 +1,6 @@
 import { Color, Scene } from 'excalibur'
 
-import { EntityActor } from 'game/actors/entityActor'
+import { EntityActor, KIND_COLORS, itemIcon } from 'game/actors/entityActor'
 
 import type { EntitySnapshot } from './entityStore'
 
@@ -26,7 +26,10 @@ export class ActorManager {
    * @returns 新建的实体 Actor
    */
   private createActor(snapshot: EntitySnapshot, localEntityId: number | undefined) {
-    const color = localEntityId === snapshot.id ? Color.Cyan : Color.Orange
+    const color =
+      localEntityId === snapshot.id ? Color.Cyan : (KIND_COLORS[snapshot.kind] ?? Color.LightGray)
+
+    const label = snapshot.kind === 'item' ? itemIcon(snapshot.itemKind) : undefined
 
     return snapshot.shape === 0
       ? new EntityActor({
@@ -36,6 +39,8 @@ export class ActorManager {
           color,
           shape: 0,
           radius: snapshot.radius,
+          kind: snapshot.kind,
+          label,
         })
       : new EntityActor({
           entityId: snapshot.id,
@@ -45,6 +50,8 @@ export class ActorManager {
           shape: 1,
           w: snapshot.w,
           h: snapshot.h,
+          kind: snapshot.kind,
+          label,
         })
   }
 
@@ -62,7 +69,10 @@ export class ActorManager {
       alive.add(id)
       let actor = this.actorsById.get(id)
 
-      if (!actor || !actor.matchesRender(snapshot.shape, snapshot.radius, snapshot.w, snapshot.h)) {
+      if (
+        !actor ||
+        !actor.matchesRender(snapshot.kind, snapshot.shape, snapshot.radius, snapshot.w, snapshot.h)
+      ) {
         if (actor) scene.remove(actor)
         actor = this.createActor(snapshot, localEntityId)
         this.actorsById.set(id, actor)

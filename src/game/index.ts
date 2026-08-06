@@ -1,4 +1,4 @@
-import { Actor, Engine, Keys, type Scene, type TileMap } from 'excalibur'
+import { Actor, Engine, Keys, type Keyboard, type Scene, type TileMap } from 'excalibur'
 import { createGameBridge } from './bridge'
 import { config, debugConfig } from './config'
 import { sceneList } from './scenes'
@@ -11,15 +11,19 @@ import type {
   CollisionDebugEntityBody,
   CollisionDebugMapBody,
   CollisionDebugSnapshot,
+  CommandPayload,
   ConnectionStatus,
   InputPayload,
 } from './net/types'
+import { getItemCategory, SERVER_CONSTANTS } from './net/types'
 import type { RoomState } from './net/schema'
 import { ActorManager } from './world/actorManager'
-import { EntityStore } from './world/entityStore'
+import { EntityStore, type EntitySnapshot } from './world/entityStore'
 import { createMapTileMap, createServerColliderDebugActor } from './world/mapTileMap'
 
 const serverTickIntervalMs = 50
+/** 放置 kit 时的朝向偏移（协议校验距离 64px，客户端取半距）。 */
+const placeOffsetPx = 32
 /**
  * Excalibur 游戏引擎实现：
  * - 维护游戏内部状态（GameUIState）
@@ -39,7 +43,7 @@ export class MyGame extends Engine {
   private connectionStatus: ConnectionStatus = 'idle'
 
   private readonly connection = new GameConnection()
-  private readonly canvas: HTMLCanvasElement
+  private readonly canvasElement: HTMLCanvasElement
   private localEntityId: number | undefined
   private mapTileMap: TileMap | undefined
   private mapDebugActors: Actor[] = []
@@ -59,6 +63,7 @@ export class MyGame extends Engine {
   private inputSeq = 0
   private inputCooldownMs = 0
   private facing: Facing = '下'
+  private selectedSlot: number | undefined
 
   /**
    * @param canvasElement 承载 Excalibur 渲染的 canvas
@@ -72,7 +77,7 @@ export class MyGame extends Engine {
       displayMode: config.displayMode,
     })
 
-    this.canvas = canvasElement
+    this.canvasElement = canvasElement
     this.state = this.createInitialState()
 
     this.bridgeInternal = createGameBridge({
@@ -167,6 +172,7 @@ export class MyGame extends Engine {
       fps: 60,
       isPaused: false,
       player: { x: 0, y: 0, facing: '下' },
+      world: { hour: 8, phase: 0, mapId: '' },
       stats: {
         name: '-',
         zone: '-',
@@ -177,6 +183,11 @@ export class MyGame extends Engine {
         mpMax: 0,
         coins: 0,
       },
+      needs: [],
+      inventory: Array.from({ length: 12 }, () => ({ kind: '', count: 0 })),
+      equipment: { weaponSlot: -1, toolSlot: -1, armorSlot: -1 },
+      quests: [],
+      dialogue: null,
       debug: {
         enabled: debugConfig.drawServerColliders,
         showMapColliders: true,
@@ -238,7 +249,8 @@ export class MyGame extends Engine {
     const fps = deltaMs > 0 ? Math.round(1000 / deltaMs) : this.state.fps
     const local =
       typeof this.localEntityId === 'number' ? snapshots.get(this.localEntityId) : undefined
-    const next = {
+
+    const next: GameUIState = {
       ...this.state,
       fps,
       player: {
@@ -250,6 +262,11 @@ export class MyGame extends Engine {
         ...this.state.stats,
         hp: local?.hp ?? this.state.stats.hp,
       },
+      needs: local ? local.needs : this.state.needs,
+      inventory: local ? local.inventory : this.state.inventory,
+      equipment: local?.equipment ?? this.state.equipment,
+      quests: local?.quests ?? this.state.quests,
+      dialogue: local?.dialogue ?? this.state.dialogue,
       debug: this.state.debug,
     }
 
@@ -264,12 +281,45 @@ export class MyGame extends Engine {
   /**
    * 处理一次房间状态变化。
    *
+   * 职责：
+   * - 记录本地玩家 entityId
+   * - 把实体表（visibleEntities/entities 兼容）写入 EntityStore
+   * - 记录昼夜（hour/phase）与地图（mapId）；mapId 变化时重建地图层
+   *
    * @param state 服务端房间状态
    * @param sessionId 当前客户端 sessionId
    */
   private handleRoomStateChange(state: RoomState, sessionId: string) {
     this.localEntityId = state.players.get(sessionId)?.entityId
-    this.entityStore.updateFromRoomState(state, performance.now())
+    this.entityStore.updateFromRoomState(state, sessionId, performance.now())
+
+    const prevMapId = this.state.world.mapId
+    this.state = {
+      ...this.state,
+      world: {
+        hour: state.hour,
+        phase: state.phase,
+        mapId: state.mapId,
+      },
+    }
+
+    // 首次连接时地图已由 connectToServer 加载；仅地图切换（非空 → 非空）时重建
+    if (prevMapId !== state.mapId && prevMapId !== '' && state.mapId) {
+      this.rebuildMapForWorld()
+    }
+  }
+
+  /**
+   * 按当前 mapId 重新拉取地图并重建地图层（场景切换时调用）。
+   */
+  private async rebuildMapForWorld() {
+    try {
+      const runtime = await this.connection.fetchMapRuntime()
+      this.attachMapTileMap(runtime)
+      this.clearDebugActors()
+    } catch {
+      this.bridgeInternal.emitMessage('地图加载失败')
+    }
   }
 
   /**
@@ -346,17 +396,17 @@ export class MyGame extends Engine {
   }
 
   private setupDragListeners() {
-    this.canvas.addEventListener('pointerdown', this.onPointerDown)
-    this.canvas.addEventListener('pointermove', this.onPointerMove)
+    this.canvasElement.addEventListener('pointerdown', this.onPointerDown)
+    this.canvasElement.addEventListener('pointermove', this.onPointerMove)
     window.addEventListener('pointerup', this.onPointerUp)
-    this.canvas.addEventListener('wheel', this.onWheel, { passive: false })
+    this.canvasElement.addEventListener('wheel', this.onWheel, { passive: false })
   }
 
   private teardownDragListeners() {
-    this.canvas.removeEventListener('pointerdown', this.onPointerDown)
-    this.canvas.removeEventListener('pointermove', this.onPointerMove)
+    this.canvasElement.removeEventListener('pointerdown', this.onPointerDown)
+    this.canvasElement.removeEventListener('pointermove', this.onPointerMove)
     window.removeEventListener('pointerup', this.onPointerUp)
-    this.canvas.removeEventListener('wheel', this.onWheel)
+    this.canvasElement.removeEventListener('wheel', this.onWheel)
   }
 
   private onPointerDown = (e: PointerEvent) => {
@@ -384,7 +434,7 @@ export class MyGame extends Engine {
     const newZoom = Math.max(0.3, Math.min(5, oldZoom - Math.sign(e.deltaY) * step))
     if (newZoom === oldZoom) return
 
-    const rect = this.canvas.getBoundingClientRect()
+    const rect = this.canvasElement.getBoundingClientRect()
     const scaleX = config.width / rect.width
     const scaleY = config.height / rect.height
     const mx = (e.clientX - rect.left) * scaleX
@@ -604,11 +654,12 @@ export class MyGame extends Engine {
    * - WASD 映射为二维方向向量
    * - moveX/moveY 以“速度（像素/秒）”形式上行，与服务端 movementSystem 积分方式对齐
    * - 对斜向移动做归一化，避免对角线速度更快
+   * - E/空格/T 为边沿信号：只在按下那一帧置 true（服务端消费后清除）
    *
    * @returns 输入负载
    */
   private readInputPayload(): InputPayload {
-    const speed = 200
+    const speed = SERVER_CONSTANTS.speedLimit
     const keyboard = this.input.keyboard
 
     let dx = 0
@@ -631,12 +682,86 @@ export class MyGame extends Engine {
       dy *= inv
     }
 
+    this.handleGameplayHotkeys(keyboard)
+
     const payload: InputPayload = {
       seq: (this.inputSeq += 1),
       moveX: dx * speed,
       moveY: dy * speed,
+      interact: keyboard.wasPressed(Keys.E) ? true : undefined,
+      attack: keyboard.wasPressed(Keys.Space) ? true : undefined,
+      talk: keyboard.wasPressed(Keys.T) ? true : undefined,
     }
     return payload
+  }
+
+  /**
+   * 处理玩法热键（与 UI 共用同一命令通道，防抖：按下沿触发一次）。
+   *
+   * 键位（协议 §3.1）：
+   * - C：打开合成面板（UI 指令，由面板点击合成）
+   * - G：丢弃选中槽
+   * - B：放置选中 kit（玩家朝向偏移 ~32px）
+   * - X：拆除最近建筑
+   * - 数字 1–6：选中快捷槽
+   *
+   * @param keyboard Excalibur 键盘输入
+   */
+  private handleGameplayHotkeys(keyboard: Keyboard) {
+    if (keyboard.wasPressed(Keys.C)) {
+      this.bridgeInternal.emitMessage('按 C 打开合成面板（点击物品合成）')
+    }
+    if (keyboard.wasPressed(Keys.G)) {
+      const slot = this.selectedSlot
+      if (slot !== undefined) this.onCommand({ type: 'dropItem', slot })
+    }
+    if (keyboard.wasPressed(Keys.B)) {
+      const slot = this.selectedSlot
+      if (slot !== undefined) this.onCommand({ type: 'placeItem', slot })
+    }
+    if (keyboard.wasPressed(Keys.X)) {
+      this.deconstructNearest()
+    }
+    const digitKeys: Keys[] = [
+      Keys.Digit1,
+      Keys.Digit2,
+      Keys.Digit3,
+      Keys.Digit4,
+      Keys.Digit5,
+      Keys.Digit6,
+    ]
+    for (let i = 0; i < digitKeys.length; i++) {
+      const key = digitKeys[i]
+      if (key && keyboard.wasPressed(key)) {
+        this.selectedSlot = i
+      }
+    }
+  }
+
+  /**
+   * 拆除最近建筑：从实体快照中找最近的 building 实体并发 deconstruct 命令。
+   */
+  private deconstructNearest() {
+    const snapshots = this.entityStore.sample(performance.now())
+    const local =
+      typeof this.localEntityId === 'number' ? snapshots.get(this.localEntityId) : undefined
+    if (!local) return
+
+    let nearest: EntitySnapshot | undefined
+    let nearestDist = Infinity
+    snapshots.forEach((s) => {
+      if (s.kind !== 'building') return
+      const d = (s.x - local.x) ** 2 + (s.y - local.y) ** 2
+      if (d < nearestDist) {
+        nearestDist = d
+        nearest = s
+      }
+    })
+    if (!nearest) {
+      this.bridgeInternal.emitMessage('附近没有可拆除的建筑')
+      return
+    }
+    this.onCommand({ type: 'deconstructItem', target: nearest.id })
   }
 
   /**
@@ -707,7 +832,96 @@ export class MyGame extends Engine {
       return
     }
 
+    if (command.type === 'useItem') {
+      const slotInfo = this.state.inventory[command.slot]
+      const category = slotInfo ? getItemCategory(slotInfo.kind) : undefined
+      if (category === 'food') {
+        this.sendCommand({ type: 'consume', slot: command.slot })
+      } else if (category === 'tool') {
+        this.sendCommand({ type: 'equip', slot: command.slot })
+      } else if (category === 'kit') {
+        this.bridgeInternal.emitMessage('kit 类物品请用 B 键放置')
+      } else {
+        this.bridgeInternal.emitMessage('该物品不能使用')
+      }
+      return
+    }
+
+    if (command.type === 'dropItem') {
+      this.sendCommand({ type: 'drop', slot: command.slot })
+      return
+    }
+
+    if (command.type === 'transferItem') {
+      this.sendCommand({ type: 'transfer', slot: command.slot, toSlot: command.toSlot })
+      return
+    }
+
+    if (command.type === 'craftItem') {
+      this.sendCommand({ type: 'craft', recipe: command.recipe })
+      return
+    }
+
+    if (command.type === 'placeItem') {
+      const snapshots = this.entityStore.sample(performance.now())
+      const local =
+        typeof this.localEntityId === 'number' ? snapshots.get(this.localEntityId) : undefined
+      if (!local) {
+        this.bridgeInternal.emitMessage('无法确定玩家位置')
+        return
+      }
+      const offset = this.facingOffset()
+      this.sendCommand({
+        type: 'place',
+        slot: command.slot,
+        x: local.x + offset.x,
+        y: local.y + offset.y,
+      })
+      return
+    }
+
+    if (command.type === 'deconstructItem') {
+      this.sendCommand({ type: 'deconstruct', target: command.target })
+      return
+    }
+
+    if (command.type === 'dialogueSelect') {
+      this.sendCommand({ type: 'dialogue', option: command.option })
+      return
+    }
+
     this.bridgeInternal.emitMessage('服务端未提供该能力')
+  }
+
+  /**
+   * 把 UI 指令映射为服务端 command 负载并发送。
+   *
+   * @param payload 服务端命令负载（协议 §2.2）
+   */
+  private sendCommand(payload: CommandPayload) {
+    if (this.connectionStatus !== 'connected') {
+      this.bridgeInternal.emitMessage('尚未连接服务器')
+      return
+    }
+    this.connection.sendCommand(payload)
+  }
+
+  /**
+   * 计算玩家朝向的偏移向量（放置 kit 用，协议 §3.1：朝向偏移 ~32px）。
+   *
+   * @returns 偏移向量
+   */
+  private facingOffset() {
+    switch (this.facing) {
+      case '上':
+        return { x: 0, y: -placeOffsetPx }
+      case '下':
+        return { x: 0, y: placeOffsetPx }
+      case '左':
+        return { x: -placeOffsetPx, y: 0 }
+      case '右':
+        return { x: placeOffsetPx, y: 0 }
+    }
   }
 }
 

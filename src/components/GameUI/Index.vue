@@ -5,41 +5,103 @@
       :slotClass="['block', 'relative', 'z-0', 'rounded-lg']"
     ></slot>
 
-    <div class="absolute inset-0 z-[1] pointer-events-none">
+    <div
+      class="absolute inset-0 z-[1] pointer-events-none"
+      :class="{ 'opacity-90': isNightDim }"
+    >
       <!-- 左上：角色状态 + 任务面板 -->
       <div class="absolute left-2 top-2 grid gap-1 pointer-events-auto">
         <PlayerStatusPanel
           :player-name="playerName"
           :zone="zone"
-          :level="level"
           :hp="hp"
           :hp-max="hpMax"
-          :mp="mp"
-          :mp-max="mpMax"
-          :coins="coins"
+          :needs="needs"
+          :hour="hour"
+          :phase="phase"
           @open-settings="showSettings = true"
         />
 
         <QuestPanel
           :collapsed="questCollapsed"
-          :active-quest="activeQuest"
-          :quest-desc="questDesc"
-          :quest-progress="questProgress"
-          :quest-goal="questGoal"
-          :quest-percent="questPercent"
+          :quests="quests"
           @toggle-collapse="questCollapsed = !questCollapsed"
-          @advance="advanceQuest"
-          @complete="completeQuest"
         />
       </div>
 
       <!-- 右上：小地图 -->
-      <div v-if="showMiniMap" class="absolute right-2 top-2 pointer-events-auto">
+      <div
+        v-if="showMiniMap"
+        class="absolute right-2 top-2 pointer-events-auto"
+      >
         <MiniMapPanel @close="showMiniMap = false" />
       </div>
 
+      <!-- 左侧中部：背包 / 合成 -->
+      <div class="absolute left-2 top-1/2 -translate-y-1/2 grid gap-1 pointer-events-auto">
+        <button
+          class="flex h-8 w-8 items-center justify-center rounded border border-neutral-700/50 bg-black/60 text-sm backdrop-blur hover:border-neutral-400 cursor-pointer"
+          :title="showInventory ? '关闭背包' : '打开背包'"
+          @click="showInventory = !showInventory"
+        >
+          🎒
+        </button>
+        <button
+          class="flex h-8 w-8 items-center justify-center rounded border border-neutral-700/50 bg-black/60 text-sm backdrop-blur hover:border-neutral-400 cursor-pointer"
+          :title="showCraft ? '关闭合成' : '打开合成 (C)'"
+          @click="showCraft = !showCraft"
+        >
+          🔨
+        </button>
+      </div>
+
+      <div
+        v-if="showInventory"
+        class="absolute left-12 top-1/2 -translate-y-1/2 pointer-events-auto"
+      >
+        <InventoryPanel
+          :inventory="inventory"
+          :equipment="equipment"
+          :selected-slot="activeSlot"
+          @close="showInventory = false"
+          @use-item="dispatch({ type: 'useItem', slot: $event })"
+          @drop-item="dispatch({ type: 'dropItem', slot: $event })"
+          @transfer-item="
+            dispatch({ type: 'transferItem', slot: $event.slot, toSlot: $event.toSlot })
+          "
+        />
+      </div>
+
+      <div
+        v-if="showCraft"
+        class="absolute left-12 top-1/2 -translate-y-1/2 pointer-events-auto"
+      >
+        <CraftPanel
+          @close="showCraft = false"
+          @craft-item="dispatch({ type: 'craftItem', recipe: $event })"
+        />
+      </div>
+
+      <!-- 对话 -->
+      <div
+        v-if="dialogue && !dialogueDismissed"
+        class="absolute bottom-16 left-1/2 -translate-x-1/2 pointer-events-auto"
+      >
+        <DialoguePanel
+          :dialogue="dialogue"
+          @close="dialogueDismissed = true"
+          @dialogue-select="dispatch({ type: 'dialogueSelect', option: $event })"
+        />
+      </div>
+
       <!-- 底部：物品快捷栏 -->
-      <ActionBar />
+      <div class="pointer-events-auto">
+        <ActionBar
+          :inventory="inventory"
+          :active-slot="activeSlot"
+          @use-item="dispatch({ type: 'useItem', slot: $event })"
+        />
+      </div>
 
       <!-- 设置弹窗 -->
       <SettingsModal
@@ -69,6 +131,9 @@ defineOptions({ name: 'GameUI' })
 import type { GameBridge, GameDebugState, GameUIEvent } from 'game/type'
 import { computed, ref, watchEffect } from 'vue'
 import ActionBar from './components/ActionBar.vue'
+import CraftPanel from './components/CraftPanel.vue'
+import DialoguePanel from './components/DialoguePanel.vue'
+import InventoryPanel from './components/InventoryPanel.vue'
 import MiniMapPanel from './components/MiniMapPanel.vue'
 import PlayerStatusPanel from './components/PlayerStatusPanel.vue'
 import QuestPanel from './components/QuestPanel.vue'
@@ -78,20 +143,32 @@ const props = defineProps<{
   bridge?: GameBridge
 }>()
 
-const playerName = ref('测试玩家')
-const zone = ref('新手村')
-const level = ref(7)
-
+const playerName = ref('-')
+const zone = ref('')
+const hp = ref(0)
 const hpMax = ref(100)
-const mpMax = ref(80)
-
-const hp = ref(86)
-const mp = ref(52)
-const coins = ref(128)
+const needs = ref<Array<{ name: string; current: number; max: number }>>([])
+const inventory = ref<Array<{ kind: string; count: number }>>([])
+const equipment = ref<{ weaponSlot: number; toolSlot: number; armorSlot: number }>({
+  weaponSlot: -1,
+  toolSlot: -1,
+  armorSlot: -1,
+})
+const quests = ref<Array<{ questId: string; state: number; count: number }>>([])
+const dialogue = ref<{ npcId: number; treeId: string; nodeId: string; options: string[] } | null>(
+  null,
+)
+const hour = ref(8)
+const phase = ref(0)
+const activeSlot = ref(0)
 
 const showMiniMap = ref(true)
 const showSettings = ref(false)
+const showInventory = ref(false)
+const showCraft = ref(false)
 const questCollapsed = ref(true)
+const dialogueDismissed = ref(false)
+let lastDialogueKey = ''
 
 const debugState = ref<GameDebugState>({
   enabled: false,
@@ -103,11 +180,6 @@ const debugState = ref<GameDebugState>({
   tick: 0,
 })
 
-const activeQuest = ref('寻找遗失的齿轮')
-const questDesc = ref('收集 5 个齿轮并返回村口。')
-const questGoal = 5
-const questProgress = ref(2)
-
 const graphicsQuality = ref<'low' | 'medium' | 'high'>('high')
 const volume = ref(70)
 
@@ -117,23 +189,43 @@ const graphicsQualityLabel = computed(() => {
   return '高'
 })
 
-const questPercent = computed(() =>
-  Math.max(0, Math.min(100, (questProgress.value / questGoal) * 100)),
-)
+const isNightDim = computed(() => {
+  const night = phase.value === 1 || hour.value < 5 || hour.value >= 19
+  return night ? 'night' : ''
+})
+
+function dispatch(command: Parameters<GameBridge['dispatch']>[0]) {
+  if (props.bridge) {
+    props.bridge.dispatch(command)
+  }
+}
 
 function applyGameEvent(event: GameUIEvent) {
   if (event.type === 'message') return
 
   const state = event.state
   hp.value = state.stats.hp
-  mp.value = state.stats.mp
-  coins.value = state.stats.coins
-  playerName.value = state.stats.name
-  zone.value = state.stats.zone
-  level.value = state.stats.level
   hpMax.value = state.stats.hpMax
-  mpMax.value = state.stats.mpMax
+  playerName.value = state.stats.name
+  zone.value = state.world.mapId
+  needs.value = state.needs
+  inventory.value = state.inventory
+  equipment.value = state.equipment
+  quests.value = state.quests
+  hour.value = state.world.hour
+  phase.value = state.world.phase
   debugState.value = state.debug
+
+  if (state.dialogue) {
+    const key = `${state.dialogue.treeId}|${state.dialogue.nodeId}`
+    if (key !== lastDialogueKey) {
+      dialogueDismissed.value = false
+      lastDialogueKey = key
+    }
+    dialogue.value = state.dialogue
+  } else {
+    dialogue.value = null
+  }
 }
 
 watchEffect((onCleanup) => {
@@ -142,59 +234,34 @@ watchEffect((onCleanup) => {
   onCleanup(() => unsubscribe())
 })
 
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n))
-}
-
-function advanceQuest() {
-  questProgress.value = clamp(questProgress.value + 1, 0, questGoal)
-}
-
-function completeQuest() {
-  questProgress.value = questGoal
-  coins.value += 100
-}
-
 function resetSettings() {
   graphicsQuality.value = 'high'
   volume.value = 70
 }
 
 function toggleDebugEnabled() {
-  if (props.bridge) {
-    props.bridge.dispatch({ type: 'setDebugOptions', value: { enabled: !debugState.value.enabled } })
-    return
-  }
-  debugState.value = { ...debugState.value, enabled: !debugState.value.enabled }
+  dispatch({ type: 'setDebugOptions', value: { enabled: !debugState.value.enabled } })
 }
 
 function toggleMapColliders() {
-  if (props.bridge) {
-    props.bridge.dispatch({ type: 'setDebugOptions', value: { showMapColliders: !debugState.value.showMapColliders } })
-    return
-  }
-  debugState.value = { ...debugState.value, showMapColliders: !debugState.value.showMapColliders }
+  dispatch({
+    type: 'setDebugOptions',
+    value: { showMapColliders: !debugState.value.showMapColliders },
+  })
 }
 
 function toggleEntityColliders() {
-  if (props.bridge) {
-    props.bridge.dispatch({ type: 'setDebugOptions', value: { showEntityColliders: !debugState.value.showEntityColliders } })
-    return
-  }
-  debugState.value = { ...debugState.value, showEntityColliders: !debugState.value.showEntityColliders }
+  dispatch({
+    type: 'setDebugOptions',
+    value: { showEntityColliders: !debugState.value.showEntityColliders },
+  })
 }
 
 function toggleAutoRefresh() {
-  if (props.bridge) {
-    props.bridge.dispatch({ type: 'setDebugOptions', value: { autoRefresh: !debugState.value.autoRefresh } })
-    return
-  }
-  debugState.value = { ...debugState.value, autoRefresh: !debugState.value.autoRefresh }
+  dispatch({ type: 'setDebugOptions', value: { autoRefresh: !debugState.value.autoRefresh } })
 }
 
 function refreshDebug() {
-  if (props.bridge) {
-    props.bridge.dispatch({ type: 'refreshDebugOverlay' })
-  }
+  dispatch({ type: 'refreshDebugOverlay' })
 }
 </script>
