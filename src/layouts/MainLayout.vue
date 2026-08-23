@@ -1,21 +1,20 @@
 <template>
   <Container
     direction="vertical"
-    class="min-h-screen bg-neutral-50 text-neutral-900"
+    class="min-h-screen bg-px-bg text-px-text"
   >
     <Header
-      bordered
       :min-height="56"
-      class="fixed inset-x-0 top-0 z-50 h-14 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70"
+      class="fixed inset-x-0 top-0 z-50 h-14 border-b-2 border-px-text bg-px-panel"
     >
       <div class="mx-auto flex h-full w-full max-w-screen-2xl items-center gap-3 px-3 sm:px-4">
         <RouterLink
           to="/"
           aria-label="返回首页"
-          class="flex items-center gap-2 rounded px-2 py-1 text-sm font-semibold tracking-wide hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"
+          class="flex items-center gap-2 px-2 py-1 text-sm tracking-wide hover:bg-px-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-px-primary"
         >
           <span
-            class="inline-flex h-8 w-8 items-center justify-center rounded bg-neutral-900 text-white"
+            class="inline-flex h-8 w-8 items-center justify-center border-2 border-px-text bg-px-text text-xs text-px-panel"
           >
             {{ appInfo.shortName }}
           </span>
@@ -42,10 +41,10 @@
               :size="28"
               aria-label="用户头像"
             >
-              <span class="text-xs font-semibold">U</span>
+              <span class="text-xs">U</span>
             </Avatar>
-            <span class="hidden sm:inline text-sm text-neutral-700">用户</span>
-            <span class="text-xs text-neutral-500">▾</span>
+            <span class="hidden sm:inline text-sm text-px-muted">用户</span>
+            <span class="text-xs text-px-muted">▾</span>
           </Button>
         </DropDown>
       </div>
@@ -56,16 +55,15 @@
       class="flex-1 pt-14"
     >
       <Aside
-        bordered
         side="left"
         :width="sidebarWidth"
-        class="sticky top-14 z-10 h-[calc(100vh-3.5rem)] bg-white transition-[width] duration-200"
+        class="sticky top-14 z-10 h-[calc(100vh-3.5rem)] border-r-2 border-px-text bg-px-panel transition-[width] duration-200"
       >
         <div class="flex h-full flex-col overflow-hidden">
           <div class="flex items-center justify-between gap-2 px-3 py-3">
             <div class="min-w-0">
               <div
-                class="truncate text-xs font-semibold text-neutral-600"
+                class="truncate text-xs text-px-muted"
                 :aria-label="isSidebarCollapsed ? '菜单' : '主菜单'"
               >
                 {{ isSidebarCollapsed ? '菜单' : '主菜单' }}
@@ -83,7 +81,7 @@
           </div>
 
           <div
-            class="flex-1 overflow-auto px-2 pb-3 outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"
+            class="flex-1 overflow-auto px-2 pb-3 outline-none focus-visible:ring-2 focus-visible:ring-px-primary"
             tabindex="0"
             aria-label="侧边栏菜单"
             @keydown="onMenuKeydown"
@@ -109,7 +107,7 @@
         direction="vertical"
         class="min-w-0 flex-1"
       >
-        <Main class="h-[calc(100vh-3.5rem)] overflow-hidden bg-neutral-50">
+        <Main class="h-[calc(100vh-3.5rem)] overflow-hidden bg-px-bg">
           <div class="flex h-full flex-col">
             <div
               class="flex-1 overflow-auto px-4 py-4"
@@ -120,8 +118,7 @@
 
             <Footer
               v-if="showFooter"
-              bordered
-              class="bg-white px-4 py-3 text-xs text-neutral-500"
+              class="border-t-2 border-px-text bg-px-panel px-4 py-3 text-xs text-px-muted"
             >
               <div class="mx-auto w-full max-w-screen-2xl">
                 © {{ new Date().getFullYear() }} {{ appInfo.BName }} All rights reserved.
