@@ -16,6 +16,12 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    css: false,
+    server: {
+      deps: {
+        inline: [/@pixelium\/web-vue/],
+      },
+    },
     include: ['src/**/*.{test,spec}.ts'],
     coverage: {
       provider: 'v8',
