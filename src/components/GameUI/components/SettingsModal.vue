@@ -1,122 +1,139 @@
 <template>
-  <div class="absolute inset-0 grid place-items-center bg-black/40 pointer-events-auto">
-    <div
-      class="w-[min(400px,calc(100%-2rem))] rounded-xl border border-neutral-700 bg-neutral-900 p-4 shadow-lg text-neutral-100"
-    >
-      <div class="flex items-center justify-between">
-        <div class="text-sm font-semibold">设置</div>
+  <div class="absolute inset-0 grid place-items-center bg-px-text/40 pointer-events-auto">
+    <div class="px-panel w-[min(400px,calc(100%-2rem))] p-3 text-px-text">
+      <div class="flex items-center justify-between gap-2 border-b-2 border-px-text pb-2">
+        <div class="flex items-center gap-2">
+          <IconSliders :size="16" class="text-px-primary" />
+          <span class="text-sm tracking-wider">设置</span>
+        </div>
         <Button
+          shape="square"
           size="small"
           variant="text"
+          theme="danger"
+          :aria-label="'关闭设置'"
           @click="$emit('close')"
-          >关闭</Button
         >
+          <template #icon>
+            <IconClose :size="12" />
+          </template>
+        </Button>
       </div>
 
-      <div class="mt-3 grid gap-3">
-        <div class="rounded-md bg-neutral-800 px-3 py-2">
+      <div class="mt-3 grid gap-2">
+        <div class="border border-px-line bg-px-soft p-2">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-semibold">画面质量</span>
-            <span class="text-neutral-400">{{ graphicsQualityLabel }}</span>
+            <span>画面质量</span>
+            <span class="text-px-muted">{{ graphicsQualityLabel }}</span>
           </div>
           <div class="mt-2 flex gap-2">
             <Button
+              v-for="q in qualityOptions"
+              :key="q.value"
               size="small"
-              variant="text"
-              :class="graphicsQuality === 'low' ? 'bg-neutral-600 text-white' : ''"
-              @click="$emit('updateQuality', 'low')"
-              >低</Button
+              :variant="graphicsQuality === q.value ? 'plain' : 'outline'"
+              @click="$emit('updateQuality', q.value)"
             >
-            <Button
-              size="small"
-              variant="text"
-              :class="graphicsQuality === 'medium' ? 'bg-neutral-600 text-white' : ''"
-              @click="$emit('updateQuality', 'medium')"
-              >中</Button
-            >
-            <Button
-              size="small"
-              variant="text"
-              :class="graphicsQuality === 'high' ? 'bg-neutral-600 text-white' : ''"
-              @click="$emit('updateQuality', 'high')"
-              >高</Button
-            >
+              {{ q.label }}
+            </Button>
           </div>
         </div>
 
-        <div class="rounded-md bg-neutral-800 px-3 py-2">
+        <div class="border border-px-line bg-px-soft p-2">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-semibold">主音量</span>
-            <span class="text-neutral-400">{{ volume }}%</span>
+            <span>主音量</span>
+            <span class="text-px-muted">{{ volume }}%</span>
           </div>
-          <input
-            :value="volume"
-            type="range"
-            min="0"
-            max="100"
-            class="mt-2 w-full"
-            @input="onVolumeInput"
+          <Slider
+            class="mt-2"
+            :model-value="volume"
+            :min="0"
+            :max="100"
+            :step="1"
+            @update:model-value="onVolumeChange"
           />
         </div>
 
-        <div class="rounded-md bg-neutral-800 px-3 py-2">
+        <div class="border border-px-line bg-px-soft p-2">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-semibold">碰撞调试</span>
-            <span class="text-neutral-400"
+            <span>碰撞调试</span>
+            <span class="text-px-muted"
               >tick {{ debug.tick }} | {{ debug.colliderCount }}/{{ debug.pairCount }}</span
             >
           </div>
-          <div class="mt-2 flex flex-wrap gap-1.5">
+          <div class="mt-2 grid gap-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs">调试</span>
+              <Switch
+                shape="rect"
+                size="small"
+                :model-value="debug.enabled"
+                active-label="开"
+                inactive-label="关"
+                @update:model-value="$emit('toggleDebugEnabled')"
+              />
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs">地图碰撞</span>
+              <Switch
+                shape="rect"
+                size="small"
+                :model-value="debug.showMapColliders"
+                @update:model-value="$emit('toggleMapColliders')"
+              />
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs">实体碰撞</span>
+              <Switch
+                shape="rect"
+                size="small"
+                :model-value="debug.showEntityColliders"
+                @update:model-value="$emit('toggleEntityColliders')"
+              />
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs">自动刷新</span>
+              <Switch
+                shape="rect"
+                size="small"
+                :model-value="debug.autoRefresh"
+                @update:model-value="$emit('toggleAutoRefresh')"
+              />
+            </div>
             <Button
               size="small"
-              variant="text"
-              :class="debug.enabled ? 'bg-emerald-600 text-white' : ''"
-              @click="$emit('toggleDebugEnabled')"
-              >{{ debug.enabled ? '调试开' : '调试关' }}</Button
-            >
-            <Button
-              size="small"
-              variant="text"
-              :class="debug.showMapColliders ? 'bg-sky-600 text-white' : ''"
-              @click="$emit('toggleMapColliders')"
-              >地图</Button
-            >
-            <Button
-              size="small"
-              variant="text"
-              :class="debug.showEntityColliders ? 'bg-violet-600 text-white' : ''"
-              @click="$emit('toggleEntityColliders')"
-              >实体</Button
-            >
-            <Button
-              size="small"
-              variant="text"
-              :class="debug.autoRefresh ? 'bg-amber-600 text-white' : ''"
-              @click="$emit('toggleAutoRefresh')"
-              >{{ debug.autoRefresh ? '自动' : '手动' }}</Button
-            >
-            <Button
-              size="small"
-              variant="text"
+              variant="outline"
+              block
               @click="$emit('refreshDebug')"
-              >刷新</Button
             >
+              <template #icon>
+                <IconReload :size="12" />
+              </template>
+              刷新
+            </Button>
           </div>
         </div>
       </div>
 
-      <div class="mt-4 flex items-center justify-end gap-2">
+      <div class="mt-3 flex items-center justify-end gap-2">
         <Button
           size="small"
-          variant="text"
+          variant="outline"
           @click="$emit('reset')"
-          >恢复默认</Button
         >
+          恢复默认
+        </Button>
         <Button
           size="small"
+          variant="plain"
+          theme="success"
           @click="$emit('save')"
-          >保存</Button
         >
+          <template #icon>
+            <IconCheck :size="12" />
+          </template>
+          保存
+        </Button>
       </div>
     </div>
   </div>
@@ -125,7 +142,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'SettingsModal' })
 
-import { Button } from '@pixelium/web-vue/es'
+import { Button, Slider, Switch } from '@pixelium/web-vue/es'
+import { IconCheck, IconClose, IconReload, IconSliders } from '@pixelium/web-vue/icon-pa/es'
 import type { GameDebugState } from 'game/type'
 
 const props = defineProps<{
@@ -148,10 +166,15 @@ const emit = defineEmits<{
   (e: 'refreshDebug'): void
 }>()
 
-function onVolumeInput(e: Event) {
-  const el = e.target as HTMLInputElement | null
-  const raw = el?.value ?? String(props.volume)
-  const next = Number(raw)
-  emit('updateVolume', Number.isFinite(next) ? next : props.volume)
+const qualityOptions: Array<{ label: string; value: 'low' | 'medium' | 'high' }> = [
+  { label: '低', value: 'low' },
+  { label: '中', value: 'medium' },
+  { label: '高', value: 'high' },
+]
+
+function onVolumeChange(value: number | [number, number]) {
+  const raw = Array.isArray(value) ? (value[0] ?? props.volume) : value
+  const next = Math.round(raw)
+  emit('updateVolume', Math.max(0, Math.min(100, next)))
 }
 </script>

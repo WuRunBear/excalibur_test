@@ -1,39 +1,51 @@
 <template>
-  <div class="w-64 rounded border border-neutral-700/40 bg-black/70 p-2 backdrop-blur text-white">
-    <div class="flex items-center justify-between">
-      <span class="text-[11px] font-semibold">💬 {{ dialogue.treeId || '对话' }}</span>
-      <button
-        class="text-[9px] text-neutral-400 cursor-pointer hover:text-white"
+  <div class="px-panel w-64 p-2 text-px-text">
+    <div class="flex items-center justify-between gap-2">
+      <span class="px-panel__title inline-flex items-center gap-1">
+        <IconMessage :size="12" />
+        <span>{{ dialogue.treeId || '对话' }}</span>
+      </span>
+      <Button
+        shape="square"
+        size="small"
+        variant="text"
+        theme="danger"
+        :aria-label="'关闭对话'"
         @click="$emit('close')"
       >
-        ✕
-      </button>
+        <template #icon>
+          <IconClose :size="12" />
+        </template>
+      </Button>
     </div>
 
     <div
       v-if="dialogue.nodeId"
-      class="mt-1 text-[9px] text-neutral-400"
+      class="mt-2 text-[10px] text-px-muted"
     >
       节点: {{ dialogue.nodeId }}
     </div>
 
     <div
       v-if="dialogue.options.length"
-      class="mt-1.5 flex flex-col gap-1"
+      class="mt-2 flex flex-col gap-1"
     >
-      <button
+      <Button
         v-for="(option, idx) in dialogue.options"
         :key="idx"
-        class="rounded border border-neutral-700/50 bg-neutral-900/60 px-2 py-1 text-left text-[10px] hover:border-neutral-400 cursor-pointer"
+        shape="rect"
+        size="small"
+        variant="outline"
+        class="w-full"
         @click="$emit('dialogueSelect', idx)"
       >
         {{ option }}
-      </button>
+      </Button>
     </div>
 
     <div
       v-else
-      class="mt-1.5 text-[10px] text-neutral-500"
+      class="mt-2 text-[10px] text-px-muted"
     >
       （无选项）
     </div>
@@ -43,6 +55,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'DialoguePanel' })
 
+import { Button } from '@pixelium/web-vue/es'
+import { IconClose, IconMessage } from '@pixelium/web-vue/icon-pa/es'
 import type { UIStateDialogue } from 'game/type'
 
 defineProps<{

@@ -1,19 +1,29 @@
 <template>
   <div
-    class="relative h-20 w-28 rounded border border-neutral-700/40 bg-black/60 backdrop-blur"
+    class="px-panel relative h-20 w-28 overflow-hidden"
     aria-label="小地图"
   >
-    <div
-      class="h-full w-full bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.25),transparent_55%),radial-gradient(circle_at_70%_60%,rgba(16,185,129,0.22),transparent_60%)]"
-    />
-    <Button
-      size="small"
-      variant="text"
-      class="!absolute !top-0 !right-0 !text-[8px] !p-0 !min-w-3 !h-3"
-      @click="$emit('close')"
-    >
-      ✕
-    </Button>
+    <div class="pixelated grid h-full w-full grid-cols-7 grid-rows-5">
+      <div
+        v-for="cell in 35"
+        :key="cell"
+        class="border-b border-r border-px-line"
+      />
+    </div>
+    <span class="absolute right-0 top-0">
+      <Button
+        shape="square"
+        size="small"
+        variant="text"
+        theme="danger"
+        :aria-label="'关闭小地图'"
+        @click="$emit('close')"
+      >
+        <template #icon>
+          <IconClose :size="12" />
+        </template>
+      </Button>
+    </span>
   </div>
 </template>
 
@@ -21,6 +31,7 @@
 defineOptions({ name: 'MiniMapPanel' })
 
 import { Button } from '@pixelium/web-vue/es'
+import { IconClose } from '@pixelium/web-vue/icon-pa/es'
 
 defineEmits<{
   (e: 'close'): void
