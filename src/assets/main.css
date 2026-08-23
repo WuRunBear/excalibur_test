@@ -1,2 +1,29 @@
 @import 'tailwindcss';
 @import './base.css';
+
+/*
+ * Tailwind v4 主题映射（像素风）
+ * 将 pixelium 浅色调色板暴露为 Tailwind 工具类，例如 bg-px-panel / text-px-text / border-px-border
+ */
+@theme {
+  --font-pixel:
+    'Fusion Pixel Zh_hans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    SimSun, sans-serif;
+
+  --color-px-bg: #f5f5f5; /* neutral-3 */
+  --color-px-soft: #fafafa; /* neutral-2 */
+  --color-px-panel: #ffffff; /* neutral-1 */
+  --color-px-line: #e6e6e6; /* neutral-6 */
+  --color-px-border: #c8c8c8; /* neutral-7 */
+  --color-px-border-hover: #969696; /* neutral-8 */
+  --color-px-muted: #646464; /* neutral-9 */
+  --color-px-text: #323232; /* neutral-10 */
+  --color-px-primary: #00a891; /* teal-6 */
+  --color-px-primary-dark: #0b806e; /* teal-7 */
+  --color-px-danger: #fd6860; /* red-6 */
+  --color-px-warning: #ff7d00; /* orange-6 */
+  --color-px-success: #00b42a; /* green-6 */
+  --color-px-notice: #409eff; /* blue-6 */
+  --color-px-sakura: #ff9ab2; /* pink-6 */
+}
