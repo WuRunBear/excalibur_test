@@ -2,7 +2,7 @@
   <div class="relative inline-block select-none">
     <slot
       name="content"
-      :slotClass="['block', 'relative', 'z-0', 'rounded-lg']"
+      :slotClass="['block', 'relative', 'z-0']"
     ></slot>
 
     <div
@@ -39,20 +39,30 @@
 
       <!-- 左侧中部：背包 / 合成 -->
       <div class="absolute left-2 top-1/2 -translate-y-1/2 grid gap-1 pointer-events-auto">
-        <button
-          class="flex h-8 w-8 items-center justify-center rounded border border-neutral-700/50 bg-black/60 text-sm backdrop-blur hover:border-neutral-400 cursor-pointer"
+        <Button
+          shape="square"
+          size="medium"
+          variant="plain"
           :title="showInventory ? '关闭背包' : '打开背包'"
+          aria-label="背包"
           @click="showInventory = !showInventory"
         >
-          🎒
-        </button>
-        <button
-          class="flex h-8 w-8 items-center justify-center rounded border border-neutral-700/50 bg-black/60 text-sm backdrop-blur hover:border-neutral-400 cursor-pointer"
+          <template #icon>
+            <IconShoppingBag :size="16" />
+          </template>
+        </Button>
+        <Button
+          shape="square"
+          size="medium"
+          variant="plain"
           :title="showCraft ? '关闭合成' : '打开合成 (C)'"
+          aria-label="合成"
           @click="showCraft = !showCraft"
         >
-          🔨
-        </button>
+          <template #icon>
+            <IconPlus :size="16" />
+          </template>
+        </Button>
       </div>
 
       <div
@@ -129,6 +139,8 @@
 defineOptions({ name: 'GameUI' })
 
 import type { GameBridge, GameDebugState, GameUIEvent } from 'game/type'
+import { Button } from '@pixelium/web-vue/es'
+import { IconPlus, IconShoppingBag } from '@pixelium/web-vue/icon-pa/es'
 import { computed, ref, watchEffect } from 'vue'
 import ActionBar from './components/ActionBar.vue'
 import CraftPanel from './components/CraftPanel.vue'

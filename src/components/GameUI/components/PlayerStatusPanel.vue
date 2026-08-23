@@ -1,57 +1,55 @@
 <template>
   <div
-    class="flex items-center gap-1.5 rounded border border-neutral-700/40 bg-black/60 px-1.5 py-1 backdrop-blur text-white"
-    :class="{ '!border-indigo-500/50': isNight }"
+    class="px-panel flex items-center gap-1 px-2 py-1 text-px-text"
+    :class="{ 'player-panel--night': isNight }"
   >
-    <span class="text-[10px] leading-none font-semibold max-w-[60px] truncate">{{
-      playerName
-    }}</span>
+    <span class="text-xs leading-none max-w-[60px] truncate">{{ playerName }}</span>
 
-    <div class="w-20 h-1.5 rounded-full bg-neutral-700 overflow-hidden">
-      <div
-        class="h-full bg-rose-500 transition-[width] duration-200"
-        :style="{ width: hpPercent + '%' }"
-      />
+    <div class="w-20">
+      <Progress :percentage="hpPercent" theme="danger" :size="8" />
     </div>
-    <span class="text-[9px] text-neutral-300 leading-none w-8 text-right tabular-nums">{{
+    <span class="text-xs text-px-muted leading-none w-8 text-right tabular-nums">{{
       hp
     }}</span>
 
     <div
       v-for="need in needs"
       :key="need.name"
-      class="flex items-center gap-0.5"
-      :title="needName(need.name)"
+      class="flex items-center gap-1"
+      :title="need.name"
     >
-      <span class="text-[8px] leading-none">{{ needName(need.name) }}</span>
-      <div class="w-8 h-1.5 rounded-full bg-neutral-700 overflow-hidden">
-        <div
-          class="h-full transition-[width] duration-200"
-          :class="needIconClass(need.name)"
-          :style="{ width: needPercent(need) + '%' }"
-        />
+      <span class="text-xs leading-none">{{ needName(need.name) }}</span>
+      <div class="w-8">
+        <Progress :percentage="needPercent(need)" :theme="needTheme(need.name)" :size="6" />
       </div>
     </div>
 
     <span
-      class="text-[9px] leading-none tabular-nums"
-      :class="{ 'text-indigo-300': isNight }"
+      class="flex items-center gap-1 text-xs leading-none tabular-nums"
+      :class="{ 'player-panel__clock--night': isNight }"
     >
-      {{ clock }} {{ isNight ? '🌙' : '☀️' }}
+      {{ clock }}
+      <IconMoon v-if="isNight" :size="12" />
+      <IconSun v-else :size="12" />
     </span>
+
     <span
       v-if="zone"
-      class="text-[9px] text-neutral-500 leading-none max-w-[56px] truncate"
+      class="text-xs text-px-muted leading-none max-w-[56px] truncate"
       >{{ zone }}</span
     >
 
     <Button
+      shape="square"
       size="small"
       variant="text"
-      class="!text-[10px] !p-0 !min-w-4 !h-4"
+      title="设置"
+      aria-label="设置"
       @click="$emit('openSettings')"
     >
-      ⚙
+      <template #icon>
+        <IconSliders :size="16" />
+      </template>
     </Button>
   </div>
 </template>
@@ -60,7 +58,8 @@
 defineOptions({ name: 'PlayerStatusPanel' })
 
 import { computed } from 'vue'
-import { Button } from '@pixelium/web-vue/es'
+import { Button, Progress } from '@pixelium/web-vue/es'
+import { IconMoon, IconSliders, IconSun } from '@pixelium/web-vue/icon-pa/es'
 import type { UIStateNeeds } from 'game/type'
 
 const props = defineProps<{
@@ -103,7 +102,17 @@ function needPercent(need: UIStateNeeds) {
   return need.max <= 0 ? 0 : clamp((need.current / need.max) * 100, 0, 100)
 }
 
-function needIconClass(name: string) {
-  return name === 'hunger' ? 'bg-amber-500' : 'bg-sky-500'
+function needTheme(name: string): 'warning' | 'notice' {
+  return name === 'hunger' ? 'warning' : 'notice'
 }
 </script>
+
+<style scoped>
+.player-panel--night {
+  border-color: var(--color-notice);
+}
+
+.player-panel__clock--night {
+  color: var(--color-notice);
+}
+</style>
