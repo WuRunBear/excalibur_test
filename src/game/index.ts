@@ -7,6 +7,7 @@ import { loader } from './resources'
 import type { Facing, GameCommand, GameController, GameUIState } from './type'
 
 import { GameConnection } from './net/connection'
+import { makeMapCacheKey } from './net/mapCodec'
 import type {
   CollisionDebugEntityBody,
   CollisionDebugMapBody,
@@ -14,6 +15,7 @@ import type {
   CommandPayload,
   ConnectionStatus,
   InputPayload,
+  MapRuntime,
 } from './net/types'
 import { getItemCategory, SERVER_CONSTANTS } from './net/types'
 import type { RoomState } from './net/schema'
@@ -46,6 +48,10 @@ export class MyGame extends Engine {
   private readonly canvasElement: HTMLCanvasElement
   private localEntityId: number | undefined
   private mapTileMap: TileMap | undefined
+  /** 当前已挂载地图对应的运行时数据（用于与缓存条目比对，判断是否需要真正重建）。 */
+  private attachedMapRuntime: MapRuntime | undefined
+  /** 按 {id,version} 缓存的地图运行时数据：命中即复用，避免重复构建相同内容。 */
+  private mapRuntimeCache = new Map<string, MapRuntime>()
   private mapDebugActors: Actor[] = []
   private entityDebugActors = new Map<number, Actor>()
   private entityDebugActorMeta = new Map<
@@ -213,8 +219,9 @@ export class MyGame extends Engine {
 
     try {
       const room = await this.connection.connect()
-      const runtime = await this.connection.fetchMapRuntime()
-      this.attachMapTileMap(runtime)
+      const mapId = room.state.mapId ?? ''
+      const runtime = await this.connection.fetchMapRuntime(mapId)
+      this.applyMapRuntime(runtime, mapId)
       this.unsubscribeCollisionDebugSnapshots?.()
       this.unsubscribeCollisionDebugSnapshots = this.connection.subscribeCollisionDebugSnapshots(
         (snapshot) => {
@@ -305,21 +312,65 @@ export class MyGame extends Engine {
 
     // 首次连接时地图已由 connectToServer 加载；仅地图切换（非空 → 非空）时重建
     if (prevMapId !== state.mapId && prevMapId !== '' && state.mapId) {
-      this.rebuildMapForWorld()
+      this.rebuildMapForWorld(state.mapId)
     }
   }
 
   /**
-   * 按当前 mapId 重新拉取地图并重建地图层（场景切换时调用）。
+   * 按指定地图 id 重新拉取地图并重建地图层（场景切换时调用）。
+   *
+   * 说明：
+   * - 以房间状态 mapId 作为请求参数，杜绝换图后仍拉默认图
+   * - 校验响应 id 与请求 id 一致后才应用，不符则告警并拒绝（不挂载错图）
+   *
+   * @param mapId 服务端房间状态中的地图 id
    */
-  private async rebuildMapForWorld() {
+  private async rebuildMapForWorld(mapId: string) {
     try {
-      const runtime = await this.connection.fetchMapRuntime()
-      this.attachMapTileMap(runtime)
-      this.clearDebugActors()
+      const runtime = await this.connection.fetchMapRuntime(mapId)
+      if (this.applyMapRuntime(runtime, mapId)) {
+        this.clearDebugActors()
+      }
     } catch {
       this.bridgeInternal.emitMessage('地图加载失败')
     }
+  }
+
+  /**
+   * 校验地图响应并按 {id,version} 缓存键应用地图运行时数据。
+   *
+   * 说明：
+   * - 请求 id 非空时校验响应 id 一致，不符则告警并拒绝应用（不挂载错图）；
+   *   请求 id 为空/未定义（首 tick 前 RoomState.mapId 尚未同步，或按默认图拉取）时
+   *   不校验，服务端契约省略 mapId 回退默认图
+   * - 缓存命中时复用已缓存运行时：内容相同且已挂载则跳过重建，
+   *   尚未挂载（如换图后返回旧图）则直接用缓存对象挂载
+   * - 未命中时写入缓存并挂载新运行时
+   *
+   * @param runtime 服务端返回的地图运行时数据
+   * @param requestedMapId 请求的地图 id（空串/undefined 表示未指定、按默认图）
+   * @returns 是否实际挂载了地图（校验失败或命中缓存跳过时为 false）
+   */
+  private applyMapRuntime(runtime: MapRuntime, requestedMapId: string): boolean {
+    if (requestedMapId && runtime.id !== requestedMapId) {
+      console.warn(`[map] 请求地图 ${requestedMapId}，服务端返回 ${runtime.id}，拒绝应用`)
+      this.bridgeInternal.emitMessage('地图数据与请求不符')
+      return false
+    }
+
+    const key = makeMapCacheKey(runtime.id, runtime.version)
+    const cached = this.mapRuntimeCache.get(key)
+    if (cached) {
+      if (cached !== this.attachedMapRuntime) {
+        this.attachMapTileMap(cached)
+        return true
+      }
+      return false
+    }
+
+    this.mapRuntimeCache.set(key, runtime)
+    this.attachMapTileMap(runtime)
+    return true
   }
 
   /**
@@ -357,8 +408,9 @@ export class MyGame extends Engine {
    *
    * @param runtime 服务端地图运行时数据
    */
-  private attachMapTileMap(runtime: Awaited<ReturnType<GameConnection['fetchMapRuntime']>>) {
+  private attachMapTileMap(runtime: MapRuntime) {
     this.detachMapTileMap()
+    this.attachedMapRuntime = runtime
     this.mapTileMap = createMapTileMap(runtime)
     this.mainScene.add(this.mapTileMap)
   }
@@ -370,6 +422,7 @@ export class MyGame extends Engine {
     if (!this.mapTileMap) return
     this.mainScene.remove(this.mapTileMap)
     this.mapTileMap = undefined
+    this.attachedMapRuntime = undefined
   }
 
   private updateCamera(scene: Scene) {

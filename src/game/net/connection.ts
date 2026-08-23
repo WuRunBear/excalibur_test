@@ -1,6 +1,7 @@
 import { Client, type Room } from '@colyseus/sdk'
 
 import { gameServerHttpBaseUrl, gameServerUrl } from './config'
+import { reassembleBlocked } from './mapCodec'
 import type {
   CollisionDebugSnapshot,
   CommandPayload,
@@ -9,19 +10,6 @@ import type {
   MapRuntimeResponse,
 } from './types'
 import type { RoomState } from './schema'
-
-/**
- * 将 base64 字符串解码为 Uint8Array。
- *
- * @param base64 base64 字符串
- * @returns 二进制字节数组
- */
-function decodeBase64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
 
 /**
  * Colyseus 连接封装：负责创建客户端、加入单房间、发送输入消息。
@@ -137,21 +125,41 @@ export class GameConnection {
    *
    * 说明：
    * - 地图不通过 Colyseus state 同步，改为 HTTP 拉取一次
-   * - blocked 使用 base64 编码传输，客户端解码为 Uint8Array
+   * - 响应新契约：{id, name, grid, version, chunks}，chunks 按 16×16 瓦片分块、
+   *   每块 base64 编码，客户端按行主序重组为扁平 blocked
+   * - 响应形状不符（缺 chunks/version 字段、分块数量或字节数不匹配）时显式抛错，
+   *   绝不静默错配
    *
-   * @returns 地图运行时数据
+   * @param mapId 可选地图 id；提供时作为 ?mapId 查询参数传给服务端
+   * @returns 地图运行时数据（blocked 为扁平 Uint8Array）
    */
-  async fetchMapRuntime(): Promise<MapRuntime> {
-    const resp = await fetch(`${gameServerHttpBaseUrl}/maps/runtime`)
+  async fetchMapRuntime(mapId?: string): Promise<MapRuntime> {
+    const url = mapId
+      ? `${gameServerHttpBaseUrl}/maps/runtime?mapId=${encodeURIComponent(mapId)}`
+      : `${gameServerHttpBaseUrl}/maps/runtime`
+    const resp = await fetch(url)
     if (!resp.ok) throw new Error(`fetch map runtime failed: ${resp.status}`)
     const json = (await resp.json()) as MapRuntimeResponse
+
+    if (typeof json.id !== 'string' || typeof json.name !== 'string') {
+      throw new Error('地图运行时响应缺少 id/name 字段')
+    }
+    if (!json.grid || typeof json.grid.width !== 'number' || typeof json.grid.height !== 'number') {
+      throw new Error('地图运行时响应缺少 grid 字段')
+    }
+    if (typeof json.version !== 'string') {
+      throw new Error('地图运行时响应缺少 version 字段')
+    }
+    if (!Array.isArray(json.chunks)) {
+      throw new Error('地图运行时响应缺少 chunks 字段')
+    }
+
     return {
       id: json.id,
       name: json.name,
       grid: json.grid,
-      blocked: decodeBase64ToUint8Array(json.blockedBase64),
-      spawns: json.spawns,
-      zones: json.zones,
+      version: json.version,
+      blocked: reassembleBlocked(json.chunks, json.grid),
     }
   }
 

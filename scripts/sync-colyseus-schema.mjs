@@ -11,8 +11,11 @@ import { promisify } from 'node:util'
  * - 前端必须使用同一份 Schema 才能正确解码 RoomState 的增量补丁
  *
  * 做法：
- * 1. 从 ../game/src/network/colyseus/client-schema/schema.ts 拷贝到前端固定位置
- * 2. 执行 prettier --write，确保 lint（prettier --check）不会失败
+ * 1. 从 ../game_server_test/src/network/colyseus/client-schema/schema.ts 拷贝到前端固定位置
+ * 2. 修正 import 兼容性：本工程 tsconfig 开启 verbatimModuleSyntax（Vue 默认），
+ *    而 schema-codegen 输出的 `DataChange` 是类型却混在值 import 里（TS1484）；
+ *    机械拆成 `import type`，不触碰任何 schema 定义
+ * 3. 执行 prettier --write，确保 lint（prettier --check）不会失败
  *
  * 使用方式：
  * - 在 excalibur_test 下运行：pnpm schema:sync
@@ -21,7 +24,7 @@ const projectRoot = path.resolve(import.meta.dirname, '..')
 const source = path.resolve(
   projectRoot,
   '..',
-  'game',
+  'game_server_test',
   'src',
   'network',
   'colyseus',
@@ -44,6 +47,33 @@ if (!sourceStat.isFile()) {
 
 await fs.mkdir(path.dirname(target), { recursive: true })
 await fs.copyFile(source, target)
+
+/**
+ * schema-codegen 输出把类型（DataChange）混在值 import 中，
+ * 与本工程 verbatimModuleSyntax 冲突（TS1484）——拆成 type-only import。
+ * 只做文本级机械变换，不修改任何类/字段定义。
+ */
+{
+  const content = await fs.readFile(target, 'utf8')
+  const importRe = /import \{([^}]*)\} from '@colyseus\/schema'/
+  const match = content.match(importRe)
+  if (match) {
+    const names = match[1]
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean)
+    const typeOnly = ['DataChange']
+    const valueNames = names.filter((n) => !typeOnly.includes(n))
+    const typeNames = names.filter((n) => typeOnly.includes(n))
+    if (typeNames.length > 0) {
+      const rewritten = [
+        `import { ${valueNames.join(', ')} } from '@colyseus/schema'`,
+        `import type { ${typeNames.join(', ')} } from '@colyseus/schema'`,
+      ].join('\n')
+      await fs.writeFile(target, content.replace(importRe, rewritten))
+    }
+  }
+}
 
 const execFileAsync = promisify(execFile)
 /**

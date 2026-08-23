@@ -16,8 +16,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "schema:sync": "node scripts/sync-colyseus-schema.mjs",
-    "check": "run-s lint type-check test",
-    "check:all": "run-s lint type-check test build-only"
+    "schema:check": "node scripts/check-schema-consistency.mjs",
+    "check": "run-s schema:check lint type-check test",
+    "check:all": "run-s schema:check lint type-check test build-only"
   },
   "dependencies": {
     "@excaliburjs/plugin-tiled": "^0.32.0",

@@ -247,38 +247,33 @@ export interface MapRuntimeGrid {
   tileHeight: number
 }
 
-export interface MapRuntimeVec2 {
-  x: number
-  y: number
-}
-
-export interface MapRuntimeZone {
-  id: number
-  name: string
-  polygon: MapRuntimeVec2[]
-}
-
-export interface MapRuntimeSpawns {
-  player: MapRuntimeVec2 | null
-  npcs: Array<{ kind: string; pos: MapRuntimeVec2; zoneId?: number }>
-}
-
+/**
+ * 服务端地图运行时接口响应（GET /maps/runtime）。
+ *
+ * 说明：
+ * - blocked 阻挡数据按 16×16 瓦片分块传输，每块 base64 编码（见 mapCodec.ts）
+ * - version 为地图内容哈希，用于客户端缓存失效判断
+ */
 export interface MapRuntimeResponse {
   id: string
   name: string
   grid: MapRuntimeGrid
-  blockedBase64: string
-  spawns: MapRuntimeSpawns
-  zones: MapRuntimeZone[]
+  version: string
+  chunks: Array<{ cx: number; cy: number; data: string }>
 }
 
+/**
+ * 客户端解码后的地图运行时数据。
+ *
+ * 说明：
+ * - blocked 为行主序扁平 Uint8Array（长度 = width * height），由 chunks 重组而来
+ */
 export interface MapRuntime {
   id: string
   name: string
   grid: MapRuntimeGrid
+  version: string
   blocked: Uint8Array
-  spawns: MapRuntimeSpawns
-  zones: MapRuntimeZone[]
 }
 
 export type CollisionDebugMapBody = {
