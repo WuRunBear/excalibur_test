@@ -1,22 +1,32 @@
 <template>
   <div class="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-auto">
-    <div class="flex items-center gap-1">
+    <div class="flex items-end gap-1">
       <div
         v-for="(slot, idx) in slots"
         :key="idx"
-        class="relative flex h-9 w-9 items-center justify-center rounded border border-neutral-700/50 bg-black/60 text-sm shadow-sm backdrop-blur transition-colors hover:border-neutral-400 cursor-pointer"
-        :class="{ 'border-amber-400': idx === activeSlot }"
-        @click="onUse(idx)"
+        class="flex flex-col items-center gap-1"
       >
-        <span v-if="slot.kind">{{ slotIcon(slot.kind) }}</span>
-        <span
-          v-if="slot.kind && slot.count > 1"
-          class="absolute bottom-0 right-0.5 text-[8px] font-semibold text-white drop-shadow leading-none"
-          >{{ slot.count }}</span
+        <Button
+          shape="rect"
+          size="small"
+          :variant="idx === activeSlot ? 'plain' : 'outline'"
+          :title="slot.kind ? itemName(slot.kind) : '空槽'"
+          :aria-label="`热键 ${idx + 1}`"
+          @click="onUse(idx)"
         >
-        <span class="absolute -top-1.5 left-0.5 text-[7px] text-neutral-500 leading-none">{{
-          idx + 1
-        }}</span>
+          <template #icon>
+            <span class="text-sm leading-none">{{ slot.kind ? slotIcon(slot.kind) : '·' }}</span>
+          </template>
+          <span class="text-[10px] leading-none">
+            {{ slot.kind ? itemName(slot.kind) : '空' }}<template v-if="slot.kind && slot.count > 1">×{{ slot.count }}</template>
+          </span>
+        </Button>
+        <span
+          class="text-[8px] leading-none"
+          :class="idx === activeSlot ? 'text-px-primary' : 'text-px-muted'"
+        >
+          {{ idx + 1 }}
+        </span>
       </div>
     </div>
   </div>
@@ -26,7 +36,8 @@
 defineOptions({ name: 'ActionBar' })
 
 import { computed } from 'vue'
-import { ITEM_ICONS } from 'game/net/types'
+import { Button } from '@pixelium/web-vue/es'
+import { ITEM_ICONS, ITEM_NAMES } from 'game/net/types'
 import type { UIStateInventorySlot } from 'game/type'
 
 const props = defineProps<{
@@ -42,6 +53,10 @@ const slots = computed(() => props.inventory.slice(0, 6))
 
 function slotIcon(kind: string) {
   return ITEM_ICONS[kind] ?? '📦'
+}
+
+function itemName(kind: string) {
+  return ITEM_NAMES[kind] ?? kind
 }
 
 function onUse(idx: number) {
