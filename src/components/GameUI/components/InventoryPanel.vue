@@ -19,6 +19,22 @@
       </Button>
     </div>
 
+    <div class="mt-1 flex items-center gap-1 text-xs">
+      <span class="max-w-[60px] truncate leading-none">{{ playerName }}</span>
+
+      <div class="w-24">
+        <Progress :percentage="hpPercent" theme="danger" :size="8" />
+      </div>
+      <span class="text-px-muted w-8 text-right leading-none tabular-nums">{{ hp }}</span>
+      <span class="text-px-muted max-w-[56px] truncate leading-none">{{ zone }}</span>
+
+      <span class="flex items-center gap-1 leading-none tabular-nums">
+        {{ clock }}
+        <IconMoon v-if="isNight" :size="12" />
+        <IconSun v-else :size="12" />
+      </span>
+    </div>
+
     <div class="mt-2 grid grid-cols-6 gap-1">
       <div
         v-for="(slot, idx) in inventory"
@@ -75,9 +91,9 @@
 <script setup lang="ts">
 defineOptions({ name: 'InventoryPanel' })
 
-import { ref } from 'vue'
-import { Button } from '@pixelium/web-vue/es'
-import { IconClose, IconShield, IconShoppingBag } from '@pixelium/web-vue/icon-pa/es'
+import { computed, ref } from 'vue'
+import { Button, Progress } from '@pixelium/web-vue/es'
+import { IconClose, IconMoon, IconShield, IconShoppingBag, IconSun } from '@pixelium/web-vue/icon-pa/es'
 import { ITEM_ICONS, ITEM_NAMES } from 'game/net/types'
 import type { UIStateEquipment, UIStateInventorySlot } from 'game/type'
 
@@ -85,6 +101,12 @@ const props = defineProps<{
   inventory: UIStateInventorySlot[]
   equipment: UIStateEquipment
   selectedSlot?: number
+  playerName?: string
+  zone?: string
+  hp?: number
+  hpMax?: number
+  hour?: number
+  phase?: number
 }>()
 
 const emit = defineEmits<{
@@ -95,6 +117,26 @@ const emit = defineEmits<{
 }>()
 
 const sourceSlot = ref<number | null>(null)
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n))
+}
+
+// 防御性兜底：任务 4 前这些 props 可能不存在，统一走 ?? 兜底避免 NaN
+const max = computed(() => props.hpMax ?? 0)
+const h = computed(() => props.hp ?? 0)
+const hr = computed(() => props.hour ?? 0)
+const ph = computed(() => props.phase ?? 0)
+
+const hpPercent = computed(() => (max.value <= 0 ? 0 : clamp((h.value / max.value) * 100, 0, 100)))
+
+const isNight = computed(() => ph.value === 1 || hr.value < 5 || hr.value >= 19)
+
+const clock = computed(() => {
+  const hourInt = Math.floor(hr.value) % 24
+  const minuteInt = Math.floor((hr.value - Math.floor(hr.value)) * 60)
+  return `${String(hourInt).padStart(2, '0')}:${String(minuteInt).padStart(2, '0')}`
+})
 
 function onSlotClick(idx: number) {
   const slot = props.inventory[idx]
