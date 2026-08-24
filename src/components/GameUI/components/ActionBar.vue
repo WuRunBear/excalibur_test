@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute bottom-2 left-1/2 -translate-x-1/2 pointer-events-auto">
+  <div class="pointer-events-auto">
     <div class="flex items-end gap-1">
       <div
         v-for="(slot, idx) in slots"
