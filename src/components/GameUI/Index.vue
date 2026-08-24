@@ -104,7 +104,9 @@
       </div>
 
       <!-- 底部中央：状态栏 + 物品快捷栏 -->
-      <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto">
+      <div
+        class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto"
+      >
         <StatusStrip
           :hp="hp"
           :hp-max="hpMax"
@@ -298,7 +300,9 @@ function refreshDebug() {
 <style scoped>
 .panel-enter-active,
 .panel-leave-active {
-  transition: opacity 150ms ease-out, transform 150ms ease-out;
+  transition:
+    opacity 150ms ease-out,
+    transform 150ms ease-out;
 }
 
 .panel-enter-from,

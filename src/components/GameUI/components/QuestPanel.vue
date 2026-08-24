@@ -14,8 +14,14 @@
         @click.stop="$emit('toggleCollapse')"
       >
         <template #icon>
-          <IconChevronDown v-if="collapsed" :size="12" />
-          <IconChevronUp v-else :size="12" />
+          <IconChevronDown
+            v-if="collapsed"
+            :size="12"
+          />
+          <IconChevronUp
+            v-else
+            :size="12"
+          />
         </template>
       </Button>
     </div>
@@ -32,11 +38,22 @@
           {{ activeQuests[0].count }}
         </span>
       </div>
-      <div v-else class="px-2 pb-2 text-xs text-px-muted">暂无任务</div>
+      <div
+        v-else
+        class="px-2 pb-2 text-xs text-px-muted"
+      >
+        暂无任务
+      </div>
     </div>
 
-    <div v-if="!collapsed" class="flex flex-col gap-1 px-2 pb-2">
-      <div v-if="activeQuests.length === 0" class="text-xs text-px-muted">
+    <div
+      v-if="!collapsed"
+      class="flex flex-col gap-1 px-2 pb-2"
+    >
+      <div
+        v-if="activeQuests.length === 0"
+        class="text-xs text-px-muted"
+      >
         暂无任务
       </div>
       <div

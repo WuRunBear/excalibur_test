@@ -3,7 +3,10 @@
     <div class="px-panel w-[min(400px,calc(100%-2rem))] p-3 text-px-text">
       <div class="flex items-center justify-between gap-2 border-b-2 border-px-text pb-2">
         <div class="flex items-center gap-2">
-          <IconSliders :size="16" class="text-px-primary" />
+          <IconSliders
+            :size="16"
+            class="text-px-primary"
+          />
           <span class="text-sm tracking-wider">设置</span>
         </div>
         <Button

@@ -23,15 +23,25 @@
       <span class="max-w-[60px] truncate leading-none">{{ playerName }}</span>
 
       <div class="w-24">
-        <Progress :percentage="hpPercent" theme="danger" :size="8" />
+        <Progress
+          :percentage="hpPercent"
+          theme="danger"
+          :size="8"
+        />
       </div>
       <span class="text-px-muted w-8 text-right leading-none tabular-nums">{{ hp }}</span>
       <span class="text-px-muted max-w-[56px] truncate leading-none">{{ zone }}</span>
 
       <span class="flex items-center gap-1 leading-none tabular-nums">
         {{ clock }}
-        <IconMoon v-if="isNight" :size="12" />
-        <IconSun v-else :size="12" />
+        <IconMoon
+          v-if="isNight"
+          :size="12"
+        />
+        <IconSun
+          v-else
+          :size="12"
+        />
       </span>
     </div>
 
@@ -82,9 +92,7 @@
       </span>
     </div>
 
-    <div class="mt-1 text-[8px] text-px-muted">
-      左键使用 · 右键丢弃 · 先点源槽再点目标槽 = 转移
-    </div>
+    <div class="mt-1 text-[8px] text-px-muted">左键使用 · 右键丢弃 · 先点源槽再点目标槽 = 转移</div>
   </div>
 </template>
 
@@ -93,7 +101,13 @@ defineOptions({ name: 'InventoryPanel' })
 
 import { computed, ref } from 'vue'
 import { Button, Progress } from '@pixelium/web-vue/es'
-import { IconClose, IconMoon, IconShield, IconShoppingBag, IconSun } from '@pixelium/web-vue/icon-pa/es'
+import {
+  IconClose,
+  IconMoon,
+  IconShield,
+  IconShoppingBag,
+  IconSun,
+} from '@pixelium/web-vue/icon-pa/es'
 import { ITEM_ICONS, ITEM_NAMES } from 'game/net/types'
 import type { UIStateEquipment, UIStateInventorySlot } from 'game/type'
 

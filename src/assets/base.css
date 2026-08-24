@@ -21,9 +21,8 @@
 
   /* 像素字体（由 @pixelium/web-vue/dist/font.css 注册 @font-face） */
   --font-pixel:
-    'Fusion Pixel Zh_hans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    SimSun, sans-serif;
+    'Fusion Pixel Zh_hans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', SimSun, sans-serif;
 }
 
 *,
