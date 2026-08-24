@@ -3,7 +3,7 @@
     class="px-panel relative h-20 w-28 overflow-hidden"
     aria-label="小地图"
   >
-    <div class="pixelated grid h-full w-full grid-cols-7 grid-rows-5">
+    <div class="pixelated grid h-full w-full grid-cols-7 grid-rows-5 pr-7">
       <div
         v-for="cell in 35"
         :key="cell"

@@ -1,16 +1,18 @@
 <template>
   <div
-    class="px-panel flex items-center gap-1 px-2 py-1 text-px-text"
+    class="px-panel flex flex-wrap items-center gap-1 px-2 py-1 text-px-text"
     :class="{ 'player-panel--night': isNight }"
   >
     <span class="text-xs leading-none max-w-[60px] truncate">{{ playerName }}</span>
 
     <div class="w-20">
-      <Progress :percentage="hpPercent" theme="danger" :size="8" />
+      <Progress
+        :percentage="hpPercent"
+        theme="danger"
+        :size="8"
+      />
     </div>
-    <span class="text-xs text-px-muted leading-none w-8 text-right tabular-nums">{{
-      hp
-    }}</span>
+    <span class="text-xs text-px-muted leading-none w-8 text-right tabular-nums">{{ hp }}</span>
 
     <div
       v-for="need in needs"
@@ -20,7 +22,11 @@
     >
       <span class="text-xs leading-none">{{ needName(need.name) }}</span>
       <div class="w-8">
-        <Progress :percentage="needPercent(need)" :theme="needTheme(need.name)" :size="6" />
+        <Progress
+          :percentage="needPercent(need)"
+          :theme="needTheme(need.name)"
+          :size="6"
+        />
       </div>
     </div>
 
@@ -29,8 +35,14 @@
       :class="{ 'player-panel__clock--night': isNight }"
     >
       {{ clock }}
-      <IconMoon v-if="isNight" :size="12" />
-      <IconSun v-else :size="12" />
+      <IconMoon
+        v-if="isNight"
+        :size="12"
+      />
+      <IconSun
+        v-else
+        :size="12"
+      />
     </span>
 
     <span

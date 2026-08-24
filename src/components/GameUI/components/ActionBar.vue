@@ -4,25 +4,34 @@
       <div
         v-for="(slot, idx) in slots"
         :key="idx"
-        class="flex flex-col items-center gap-1"
+        class="flex flex-col items-center gap-0.5"
       >
-        <Button
-          shape="rect"
-          size="small"
-          :variant="idx === activeSlot ? 'plain' : 'outline'"
+        <button
+          type="button"
+          class="relative flex h-10 w-10 select-none items-center justify-center border-2 bg-px-panel text-base leading-none focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-px-primary"
+          :class="
+            idx === activeSlot
+              ? 'border-px-primary bg-px-primary/10 text-px-text'
+              : 'border-px-border text-px-text hover:border-px-border-hover'
+          "
           :title="slot.kind ? itemName(slot.kind) : '空槽'"
           :aria-label="`热键 ${idx + 1}`"
           @click="onUse(idx)"
         >
-          <template #icon>
-            <span class="text-sm leading-none">{{ slot.kind ? slotIcon(slot.kind) : '·' }}</span>
-          </template>
-          <span class="text-[10px] leading-none">
-            {{ slot.kind ? itemName(slot.kind) : '空' }}<template v-if="slot.kind && slot.count > 1">×{{ slot.count }}</template>
+          <span
+            class="leading-none"
+            :class="slot.kind ? '' : 'text-px-muted'"
+            >{{ slot.kind ? slotIcon(slot.kind) : '·' }}</span
+          >
+          <span
+            v-if="slot.kind && slot.count > 1"
+            class="absolute bottom-0 right-0.5 text-[9px] leading-none text-px-muted"
+          >
+            {{ slot.count }}
           </span>
-        </Button>
+        </button>
         <span
-          class="text-[8px] leading-none"
+          class="text-[10px] leading-none"
           :class="idx === activeSlot ? 'text-px-primary' : 'text-px-muted'"
         >
           {{ idx + 1 }}
@@ -36,7 +45,6 @@
 defineOptions({ name: 'ActionBar' })
 
 import { computed } from 'vue'
-import { Button } from '@pixelium/web-vue/es'
 import { ITEM_ICONS, ITEM_NAMES } from 'game/net/types'
 import type { UIStateInventorySlot } from 'game/type'
 
