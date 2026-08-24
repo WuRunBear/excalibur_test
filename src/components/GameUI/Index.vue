@@ -9,19 +9,8 @@
       class="absolute inset-0 z-[1] pointer-events-none"
       :class="{ 'opacity-90': isNightDim }"
     >
-      <!-- 左上：角色状态 + 任务面板 -->
-      <div class="absolute left-2 top-2 grid gap-1 pointer-events-auto">
-        <PlayerStatusPanel
-          :player-name="playerName"
-          :zone="zone"
-          :hp="hp"
-          :hp-max="hpMax"
-          :needs="needs"
-          :hour="hour"
-          :phase="phase"
-          @open-settings="showSettings = true"
-        />
-
+      <!-- 左上：任务面板（目标追踪） -->
+      <div class="absolute left-2 top-2 pointer-events-auto">
         <QuestPanel
           :collapsed="questCollapsed"
           :quests="quests"
@@ -37,15 +26,15 @@
         <MiniMapPanel @close="showMiniMap = false" />
       </div>
 
-      <!-- 左侧中部：背包 / 合成 -->
-      <div class="absolute left-2 top-1/2 -translate-y-1/2 grid gap-1 pointer-events-auto">
+      <!-- 左下角：背包 / 合成 -->
+      <div class="absolute left-2 bottom-2 grid gap-1 pointer-events-auto">
         <Button
           shape="square"
           size="medium"
           variant="plain"
           :title="showInventory ? '关闭背包' : '打开背包'"
           aria-label="背包"
-          @click="showInventory = !showInventory"
+          @click="toggleInventory()"
         >
           <template #icon>
             <IconShoppingBag :size="16" />
@@ -57,7 +46,7 @@
           variant="plain"
           :title="showCraft ? '关闭合成' : '打开合成 (C)'"
           aria-label="合成"
-          @click="showCraft = !showCraft"
+          @click="toggleCraft()"
         >
           <template #icon>
             <IconPlus :size="16" />
@@ -65,32 +54,42 @@
         </Button>
       </div>
 
-      <div
-        v-if="showInventory"
-        class="absolute left-12 top-1/2 -translate-y-1/2 pointer-events-auto"
-      >
-        <InventoryPanel
-          :inventory="inventory"
-          :equipment="equipment"
-          :selected-slot="activeSlot"
-          @close="showInventory = false"
-          @use-item="dispatch({ type: 'useItem', slot: $event })"
-          @drop-item="dispatch({ type: 'dropItem', slot: $event })"
-          @transfer-item="
-            dispatch({ type: 'transferItem', slot: $event.slot, toSlot: $event.toSlot })
-          "
-        />
-      </div>
+      <Transition name="panel">
+        <div
+          v-if="showInventory"
+          class="absolute left-2 bottom-24 pointer-events-auto"
+        >
+          <InventoryPanel
+            :inventory="inventory"
+            :equipment="equipment"
+            :selected-slot="activeSlot"
+            :player-name="playerName"
+            :zone="zone"
+            :hp="hp"
+            :hp-max="hpMax"
+            :hour="hour"
+            :phase="phase"
+            @close="showInventory = false"
+            @use-item="dispatch({ type: 'useItem', slot: $event })"
+            @drop-item="dispatch({ type: 'dropItem', slot: $event })"
+            @transfer-item="
+              dispatch({ type: 'transferItem', slot: $event.slot, toSlot: $event.toSlot })
+            "
+          />
+        </div>
+      </Transition>
 
-      <div
-        v-if="showCraft"
-        class="absolute left-12 top-1/2 -translate-y-1/2 pointer-events-auto"
-      >
-        <CraftPanel
-          @close="showCraft = false"
-          @craft-item="dispatch({ type: 'craftItem', recipe: $event })"
-        />
-      </div>
+      <Transition name="panel">
+        <div
+          v-if="showCraft"
+          class="absolute left-2 bottom-24 pointer-events-auto"
+        >
+          <CraftPanel
+            @close="showCraft = false"
+            @craft-item="dispatch({ type: 'craftItem', recipe: $event })"
+          />
+        </div>
+      </Transition>
 
       <!-- 对话 -->
       <div
@@ -104,8 +103,16 @@
         />
       </div>
 
-      <!-- 底部：物品快捷栏 -->
-      <div class="pointer-events-auto">
+      <!-- 底部中央：状态栏 + 物品快捷栏 -->
+      <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto">
+        <StatusStrip
+          :hp="hp"
+          :hp-max="hpMax"
+          :needs="needs"
+          :hour="hour"
+          :phase="phase"
+          @open-settings="showSettings = true"
+        />
         <ActionBar
           :inventory="inventory"
           :active-slot="activeSlot"
@@ -147,8 +154,8 @@ import CraftPanel from './components/CraftPanel.vue'
 import DialoguePanel from './components/DialoguePanel.vue'
 import InventoryPanel from './components/InventoryPanel.vue'
 import MiniMapPanel from './components/MiniMapPanel.vue'
-import PlayerStatusPanel from './components/PlayerStatusPanel.vue'
 import QuestPanel from './components/QuestPanel.vue'
+import StatusStrip from './components/StatusStrip.vue'
 import SettingsModal from './components/SettingsModal.vue'
 
 const props = defineProps<{
@@ -210,6 +217,16 @@ function dispatch(command: Parameters<GameBridge['dispatch']>[0]) {
   if (props.bridge) {
     props.bridge.dispatch(command)
   }
+}
+
+function toggleInventory() {
+  showCraft.value = false
+  showInventory.value = !showInventory.value
+}
+
+function toggleCraft() {
+  showInventory.value = false
+  showCraft.value = !showCraft.value
 }
 
 function applyGameEvent(event: GameUIEvent) {
@@ -277,3 +294,29 @@ function refreshDebug() {
   dispatch({ type: 'refreshDebugOverlay' })
 }
 </script>
+
+<style scoped>
+.panel-enter-active,
+.panel-leave-active {
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+.panel-enter-from,
+.panel-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-enter-active,
+  .panel-leave-active {
+    transition: none;
+  }
+
+  .panel-enter-from,
+  .panel-leave-to {
+    opacity: 1;
+    transform: none;
+  }
+}
+</style>
