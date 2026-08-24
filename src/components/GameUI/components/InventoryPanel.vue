@@ -22,14 +22,18 @@
     <div class="mt-1 flex items-center gap-1 text-xs">
       <span class="max-w-[60px] truncate leading-none">{{ playerName }}</span>
 
-      <div class="w-24">
+      <div class="relative w-24">
         <Progress
           :percentage="hpPercent"
           theme="danger"
-          :size="8"
+          :size="10"
         />
+        <span class="absolute inset-0 flex items-center justify-center">
+          <span class="bg-px-text px-0.5 text-[8px] leading-none tabular-nums text-px-panel">{{
+            hpText
+          }}</span>
+        </span>
       </div>
-      <span class="text-px-muted w-8 text-right leading-none tabular-nums">{{ hp }}</span>
       <span class="text-px-muted max-w-[56px] truncate leading-none">{{ zone }}</span>
 
       <span class="flex items-center gap-1 leading-none tabular-nums">
@@ -143,6 +147,8 @@ const hr = computed(() => props.hour ?? 0)
 const ph = computed(() => props.phase ?? 0)
 
 const hpPercent = computed(() => (max.value <= 0 ? 0 : clamp((h.value / max.value) * 100, 0, 100)))
+
+const hpText = computed(() => Math.round(h.value))
 
 const isNight = computed(() => ph.value === 1 || hr.value < 5 || hr.value >= 19)
 

@@ -3,14 +3,18 @@
     class="px-panel flex items-center gap-1 px-2 py-1 text-px-text"
     :class="{ 'status-strip--night': isNight }"
   >
-    <div class="w-32">
+    <div class="relative w-32">
       <Progress
         :percentage="hpPercent"
         theme="danger"
-        :size="8"
+        :size="10"
       />
+      <span class="absolute inset-0 flex items-center justify-center">
+        <span class="bg-px-text px-0.5 text-[8px] leading-none tabular-nums text-px-panel">{{
+          hpText
+        }}</span>
+      </span>
     </div>
-    <span class="text-xs tabular-nums w-8 text-right">{{ hp }}</span>
 
     <div
       v-for="need in needs"
@@ -85,6 +89,8 @@ function clamp(n: number, min: number, max: number) {
 const hpPercent = computed(() =>
   props.hpMax <= 0 ? 0 : clamp((props.hp / props.hpMax) * 100, 0, 100),
 )
+
+const hpText = computed(() => Math.round(props.hp))
 
 const isNight = computed(() => props.phase === 1 || props.hour < 5 || props.hour >= 19)
 
