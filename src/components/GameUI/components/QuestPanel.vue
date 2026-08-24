@@ -20,6 +20,21 @@
       </Button>
     </div>
 
+    <div v-if="collapsed">
+      <div
+        v-if="activeQuests[0]"
+        class="flex items-center justify-between gap-1 px-2 py-1 text-xs"
+        :class="flash ? 'border-px-notice text-px-primary bg-px-notice/10' : ''"
+      >
+        <span class="truncate">{{ activeQuests[0].questId }}</span>
+        <span>
+          {{ activeQuests[0].state === 2 ? '可交' : '进行中' }}
+          {{ activeQuests[0].count }}
+        </span>
+      </div>
+      <div v-else class="px-2 pb-2 text-xs text-px-muted">暂无任务</div>
+    </div>
+
     <div v-if="!collapsed" class="flex flex-col gap-1 px-2 pb-2">
       <div v-if="activeQuests.length === 0" class="text-xs text-px-muted">
         暂无任务
@@ -45,7 +60,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'QuestPanel' })
 
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Button } from '@pixelium/web-vue/es'
 import { IconChevronDown, IconChevronUp } from '@pixelium/web-vue/icon-pa/es'
 import type { UIStateQuest } from 'game/type'
@@ -60,4 +75,22 @@ defineEmits<{
 }>()
 
 const activeQuests = computed(() => props.quests.filter((q) => q.state === 1 || q.state === 2))
+
+const flash = ref(false)
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => {
+    const q = activeQuests.value[0]
+    return q ? `${q.questId}|${q.state}|${q.count}` : ''
+  },
+  () => {
+    if (!props.collapsed) return
+    flash.value = true
+    clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => {
+      flash.value = false
+    }, 1200)
+  },
+)
+onBeforeUnmount(() => clearTimeout(flashTimer))
 </script>
