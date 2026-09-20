@@ -24,6 +24,20 @@ export function formatTimestamp(value: number | string): string {
   return Number.isFinite(ts) ? formatDateTime(ts) : String(value)
 }
 
+/** 字节数 → 可读文本（B / KB / MB / GB，一位小数）。 */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(1)} ${units[unitIndex]}`
+}
+
 /**
  * 时长（ms）→ 中文可读文本：42 秒 / 3 分 42 秒 / 2 小时 05 分 / 1 天 4 小时。
  * 非法输入（负数 / NaN）返回占位符「—」。

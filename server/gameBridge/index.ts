@@ -26,3 +26,27 @@ export { MapRegistrySchema } from 'framework/config/schema/MapRegistrySchema'
 
 // 整体校验（Spike-2 结论见 ./validate.ts 头注释）
 export { validateWholeConfig, type ValidateWholeResult } from './validate.js'
+
+// ---------------------------------------------------------------------------
+// S5-A：地图几何（纯函数，不启动游戏）
+// ---------------------------------------------------------------------------
+export {
+  getRegistries,
+  buildMapGeometry,
+  serializeGeometry,
+  exportGeometryArtifacts,
+} from 'framework'
+export type {
+  SerializedMapGeometry,
+  MapGeometry,
+  GeometryExportOptions,
+  TilePalette,
+  FrameworkRegistries,
+  SystemSpec,
+  ArchetypeSpec,
+  ActionEntry,
+} from 'framework'
+// MapGenerationConfig / GeneratorEntry 未走门面再导出，经别名子路径引入；
+// mapGeneratorRegistry.all() 的条目类型即 GeneratorEntry { id, generator }。
+export type { MapGenerationConfig } from 'map/generate/types'
+export type { GeneratorEntry } from 'map/generate/generatorRegistry'

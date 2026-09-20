@@ -455,6 +455,168 @@ export function extractDetailMessage(detail: unknown): string | null {
   return typeof message === 'string' && message.trim() ? message : null
 }
 
+// ---------------------------------------------------------------------------
+// 地图工具（S5-B）
+// ---------------------------------------------------------------------------
+
+/** 地图配置来源：活动工作区 registry（默认）或本体。 */
+export type MapSource = 'workspace' | 'official'
+
+export interface MapPipelineStep {
+  generator: string
+  params?: Record<string, unknown>
+}
+
+/** registry.json 单图条目（tiled 图无 pipeline）。 */
+export interface MapSummary {
+  key: string
+  kind: 'pipeline' | 'tiled'
+  seed?: number
+  initialAgeTicks?: number
+  pipeline?: MapPipelineStep[]
+}
+
+/** GET /api/maps?source= → 地图清单（保留 registry 声明顺序）。 */
+export interface MapsPayload {
+  source: MapSource
+  maps: MapSummary[]
+}
+
+export function fetchMaps(source: MapSource): Promise<MapsPayload> {
+  return request(`/api/maps?source=${source}`)
+}
+
+/**
+ * POST /api/maps/:key/geometry → 序列化几何快照。
+ * tiles / walkable / regionOfTile 为行主序扁平数组（长度 = width × height）；
+ * regions 键为区域名，regionOfTile 值为 regions 键序的索引（无区域为负值）。
+ */
+export interface MapGeometryPayload {
+  key: string
+  grid: { width: number; height: number; tileWidth?: number; tileHeight?: number }
+  tiles: number[]
+  walkable: number[]
+  regions: Record<string, { name: string; meta?: Record<string, unknown> }>
+  regionOfTile: number[]
+  version: string
+}
+
+export function fetchMapGeometry(key: string, source: MapSource): Promise<MapGeometryPayload> {
+  return request(`/api/maps/${encodeURIComponent(key)}/geometry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source }),
+  })
+}
+
+/** 导出 URL（直接 a[download] / window.open 下载；palette 暂未接 UI，预留）。 */
+export function mapExportUrl(key: string, source: MapSource, format: 'png' | 'json'): string {
+  return `${ADMIN_API_BASE}/api/maps/${encodeURIComponent(key)}/export?source=${source}&format=${format}`
+}
+
+/** GET /api/maps/entity-rules?source= → 演化规则（原样 JSON，entries 引用 map/region）。 */
+export interface EntityRulesPayload {
+  source: MapSource
+  rules: unknown
+}
+
+export function fetchEntityRules(source: MapSource): Promise<EntityRulesPayload> {
+  return request(`/api/maps/entity-rules?source=${source}`)
+}
+
+// ---------------------------------------------------------------------------
+// 存档管理（S6-B）
+// ---------------------------------------------------------------------------
+
+/** 存档范围：本体 data/saves 或活动工作区 .preview-saves。 */
+export type SaveScope = 'official' | 'preview'
+
+/** WorldRecord 摘要（解析失败 / 非 WorldRecord → null）。 */
+export interface SaveSummary {
+  tick: number
+  savedAt: number
+  mapCount: number
+  entityCount: number
+  timeOfDay: { hour: number; phase: number } | null
+  kindStats: Record<string, number>
+}
+
+export interface SaveEntry {
+  file: string
+  /** 文件名去 .json */
+  saveId: string
+  sizeBytes: number
+  mtime: number
+  summary: SaveSummary | null
+}
+
+/** GET /api/saves?scope= → 存档清单。 */
+export interface SavesPayload {
+  scope: SaveScope
+  dir: string
+  saves: SaveEntry[]
+}
+
+export function fetchSaves(scope: SaveScope): Promise<SavesPayload> {
+  return request(`/api/saves?scope=${scope}`)
+}
+
+/** GET /api/saves/:file/detail?scope= → 存档详情。 */
+export interface SaveDetailPayload {
+  file: string
+  summary: SaveSummary | null
+  maps: { mapKey: string }[]
+  topKinds: { kind: string; count: number }[]
+}
+
+export function fetchSaveDetail(file: string, scope: SaveScope): Promise<SaveDetailPayload> {
+  return request(`/api/saves/${encodeURIComponent(file)}/detail?scope=${scope}`)
+}
+
+/** DELETE /api/saves/:file?scope= → 删除存档。 */
+export function deleteSave(file: string, scope: SaveScope): Promise<{ file: string }> {
+  return request(`/api/saves/${encodeURIComponent(file)}?scope=${scope}`, { method: 'DELETE' })
+}
+
+/** 存档下载 URL（浏览器直接下载）。 */
+export function saveDownloadUrl(file: string, scope: SaveScope): string {
+  return `${ADMIN_API_BASE}/api/saves/${encodeURIComponent(file)}/download?scope=${scope}`
+}
+
+/** POST /api/saves/:file/restore?scope= → 恢复为活跃存档。 */
+export interface SaveRestorePayload {
+  restoredTo: string
+  /** official scope 下提示需重启实例（存档在启动时加载） */
+  warnRestart: boolean
+}
+
+export function restoreSave(file: string, scope: SaveScope): Promise<SaveRestorePayload> {
+  return request(`/api/saves/${encodeURIComponent(file)}/restore?scope=${scope}`, {
+    method: 'POST',
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 注册表（S6-B）
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/registries → 五类注册表。
+ * 条目形状宽容：systems/archetypes 为对象数组（id 类字段），actions 含 name，
+ * components 只取键（值为 null），mapGenerators 为 {id} 数组。
+ */
+export interface RegistriesPayload {
+  systems: unknown
+  archetypes: unknown
+  actions: unknown
+  components: unknown
+  mapGenerators: unknown
+}
+
+export function fetchRegistries(): Promise<RegistriesPayload> {
+  return request('/api/registries')
+}
+
 export interface AdminChannelHandlers {
   /** 收到频道 JSON 负载（解析失败的消息会被忽略）。 */
   onMessage: (payload: unknown) => void

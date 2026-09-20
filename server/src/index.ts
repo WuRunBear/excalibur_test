@@ -21,7 +21,10 @@ import { ADMIN_PORT, GAME_ROOT, corsOrigins } from './config.js'
 import { applyRouter, backupsRouter } from './routes/apply.js'
 import { configContextRouter } from './routes/configContext.js'
 import { configsRouter } from './routes/configs.js'
+import { mapsRouter } from './routes/maps.js'
 import { processRouter } from './routes/process.js'
+import { registriesRouter } from './routes/registries.js'
+import { savesRouter } from './routes/saves.js'
 import { workspaceRouter } from './routes/workspace.js'
 import { instanceManagers } from './services/instanceManager.js'
 import { logStream } from './services/logStream.js'
@@ -59,6 +62,9 @@ app.use('/api/configs', configsRouter)
 app.use('/api/config-context', configContextRouter)
 app.use('/api/apply', applyRouter)
 app.use('/api/backups', backupsRouter)
+app.use('/api/maps', mapsRouter)
+app.use('/api/saves', savesRouter)
+app.use('/api/registries', registriesRouter)
 
 // API 404（统一响应结构）
 app.use((req, res) => {

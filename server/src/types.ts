@@ -4,6 +4,7 @@
  * 独立成模块以避免 config ↔ services 之间的循环依赖：
  * config 只依赖本文件的类型，services/ 引入 config 与本文件。
  */
+import type { ActionEntry, ArchetypeSpec, SystemSpec } from '../gameBridge/index.js'
 
 /** 实例角色：正式服 / 预览服。 */
 export type InstanceRole = 'official' | 'preview'
@@ -91,6 +92,100 @@ export interface ConfigValidationError {
   jsonPath: string
   message: string
   line?: number
+}
+
+// ---------------------------------------------------------------------------
+// S5-A：地图工具（geometry 预览 / 导出 / 双源）
+// ---------------------------------------------------------------------------
+
+/** 地图配置来源：活动工作区 registry（默认）或本体。 */
+export type MapSource = 'workspace' | 'official'
+
+export interface MapPipelineStep {
+  generator: string
+  params?: Record<string, unknown>
+}
+
+/** registry.json 单图条目（tiled 图无 pipeline）。 */
+export interface MapSummary {
+  key: string
+  kind: 'pipeline' | 'tiled'
+  seed?: number
+  initialAgeTicks?: number
+  pipeline?: MapPipelineStep[]
+}
+
+/** GET /api/maps 响应 detail（保留 registry 声明顺序）。 */
+export interface MapsPayload {
+  source: MapSource
+  maps: MapSummary[]
+}
+
+/** GET /api/maps/entity-rules 响应 detail（rules 为 entity-rules.json 原样 JSON）。 */
+export interface EntityRulesPayload {
+  source: MapSource
+  rules: unknown
+}
+
+// ---------------------------------------------------------------------------
+// S6-A：存档管理
+// ---------------------------------------------------------------------------
+
+/** 存档目录范围：本体 data/saves 或活动工作区 .preview-saves。 */
+export type SaveScope = 'official' | 'preview'
+
+/** WorldRecord 摘要（解析失败/非 WorldRecord → null）。 */
+export interface SaveSummary {
+  tick: number
+  savedAt: number
+  mapCount: number
+  entityCount: number
+  timeOfDay: { hour: number; phase: number } | null
+  kindStats: Record<string, number>
+}
+
+export interface SaveEntry {
+  file: string
+  /** 文件名去 .json（即该存档的 saveId） */
+  saveId: string
+  sizeBytes: number
+  mtime: number
+  summary: SaveSummary | null
+}
+
+/** GET /api/saves 响应 detail。 */
+export interface SavesPayload {
+  scope: SaveScope
+  dir: string
+  saves: SaveEntry[]
+}
+
+/** GET /api/saves/:file/detail 响应 detail。 */
+export interface SaveDetailPayload {
+  file: string
+  summary: SaveSummary | null
+  maps: { mapKey: string }[]
+  topKinds: { kind: string; count: number }[]
+}
+
+/** POST /api/saves/:file/restore 响应 detail。 */
+export interface SaveRestorePayload {
+  restoredTo: string
+  /** official scope 下提示需重启实例（存档在启动时加载） */
+  warnRestart: boolean
+}
+
+// ---------------------------------------------------------------------------
+// 注册表
+// ---------------------------------------------------------------------------
+
+/** GET /api/registries 响应 detail。components 只取键（值置 null，避免巨大输出）。 */
+export interface RegistriesPayload {
+  systems: SystemSpec[]
+  archetypes: ArchetypeSpec[]
+  actions: ActionEntry[]
+  components: Record<string, null>
+  mapGenerators: { id: string }[]
 }
 
 // ---------------------------------------------------------------------------

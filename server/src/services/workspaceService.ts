@@ -363,6 +363,14 @@ export class WorkspaceService {
     await fsp.mkdir(saveDir, { recursive: true })
     return { configPath, saveDir }
   }
+
+  /** S6-A：活动工作区的 .preview-saves 目录（不自动创建）；无活动工作区 → 400。 */
+  async getPreviewSavesDir(): Promise<string> {
+    const id = await this.getActiveId()
+    if (!id) throw new WorkspaceError(400, '未设置活动工作区')
+    const wsDir = this.mustExist(id)
+    return path.join(wsDir, '.preview-saves')
+  }
 }
 
 /** fingerprint：排序后 "relPath:hash\n" 串的 sha256 前 16 位。 */

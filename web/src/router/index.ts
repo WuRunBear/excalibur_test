@@ -1,6 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import { IconCode, IconDashboard, IconFolder, IconGamepad } from '@pixelium/web-vue/icon-pa/es'
+import {
+  IconCode,
+  IconDashboard,
+  IconFolder,
+  IconGamepad,
+  IconListBox,
+  IconMap,
+  IconSave,
+} from '@pixelium/web-vue/icon-pa/es'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -49,6 +57,24 @@ const router = createRouter({
           path: '/config',
           component: () => import('views/ConfigView.vue'),
           meta: { title: '配置编辑', icon: IconCode },
+        },
+        {
+          name: 'Maps',
+          path: '/maps',
+          component: () => import('views/MapView.vue'),
+          meta: { title: '地图工具', icon: IconMap },
+        },
+        {
+          name: 'Saves',
+          path: '/saves',
+          component: () => import('views/SaveView.vue'),
+          meta: { title: '存档管理', icon: IconSave },
+        },
+        {
+          name: 'Registries',
+          path: '/registries',
+          component: () => import('views/RegistryView.vue'),
+          meta: { title: '注册表', icon: IconListBox },
         },
       ],
     },
