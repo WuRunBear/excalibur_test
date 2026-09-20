@@ -40,3 +40,8 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# server workspace outputs
+server/workspaces/
+server/backups/
+server/dist/

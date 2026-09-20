@@ -1,3 +1,7 @@
+packages:
+  - 'web'
+  - 'server'
 allowBuilds:
   '@parcel/watcher': true
   msgpackr-extract: true
+  esbuild: true

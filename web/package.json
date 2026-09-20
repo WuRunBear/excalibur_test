@@ -1,0 +1,57 @@
+{
+  "name": "web",
+  "version": "0.0.1",
+  "description": "一个基于vue3+excaliburjs的游戏开发模板",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "run-p type-check \"build-only {@}\" --",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build",
+    "format": "prettier --write --experimental-cli src/",
+    "lint": "prettier --check src/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "schema:sync": "pnpm -w schema:sync",
+    "schema:check": "pnpm -w schema:check",
+    "check": "run-s schema:check lint type-check test",
+    "check:all": "run-s schema:check lint type-check test build-only"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^4.0.25",
+    "@colyseus/sdk": "^0.17.42",
+    "@excaliburjs/plugin-tiled": "^0.32.0",
+    "@pixelium/web-vue": "^0.1.4",
+    "@tailwindcss/vite": "^4.2.4",
+    "element-plus": "^2.14.6",
+    "excalibur": "^0.32.0",
+    "pinia": "^3.0.4",
+    "tailwindcss": "^4.2.4",
+    "vue": "^3.5.32",
+    "vue-router": "^5.0.4"
+  },
+  "devDependencies": {
+    "@tsconfig/node24": "^24.0.4",
+    "@types/node": "^24.12.2",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "@vitejs/plugin-vue-jsx": "^5.1.5",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@vue/test-utils": "^2.4.6",
+    "@vue/tsconfig": "^0.9.1",
+    "jsdom": "^26.1.0",
+    "npm-run-all2": "^8.0.4",
+    "prettier": "3.8.3",
+    "sass": "^1.99.0",
+    "typescript": "~6.0.0",
+    "vite": "^8.0.8",
+    "vite-plugin-vue-devtools": "^8.1.1",
+    "vitest": "^4.1.5",
+    "vue-tsc": "^3.2.6"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

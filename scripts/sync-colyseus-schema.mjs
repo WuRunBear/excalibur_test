@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -31,7 +32,7 @@ const source = path.resolve(
   'client-schema',
   'schema.ts',
 )
-const target = path.resolve(projectRoot, 'src', 'game', 'net', 'schema.ts')
+const target = path.resolve(projectRoot, 'web', 'src', 'modules', 'net', 'schema.ts')
 
 let sourceStat
 try {
@@ -78,11 +79,11 @@ await fs.copyFile(source, target)
 const execFileAsync = promisify(execFile)
 /**
  * prettier 可执行文件路径（跨平台兼容）。
+ * workspace 化后 prettier 装在 web 包下：优先 web/node_modules/.bin，
+ * 兜底回退根 node_modules/.bin（兼容旧布局/异常安装）。
  */
-const prettierBin = path.resolve(
-  projectRoot,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'prettier.cmd' : 'prettier',
-)
+const prettierBinName = process.platform === 'win32' ? 'prettier.cmd' : 'prettier'
+const webPrettierBin = path.resolve(projectRoot, 'web', 'node_modules', '.bin', prettierBinName)
+const rootPrettierBin = path.resolve(projectRoot, 'node_modules', '.bin', prettierBinName)
+const prettierBin = existsSync(webPrettierBin) ? webPrettierBin : rootPrettierBin
 await execFileAsync(prettierBin, ['--write', target], { cwd: projectRoot })

@@ -1,0 +1,163 @@
+/**
+ * Element Plus 主题覆盖 —— 游戏服务端可视化管理平台（S1-D2）。
+ *
+ * 设计取向：
+ * - 主色「墨青」#0f766e：与项目像素底色（--px-primary #00a891 青色系）同族，
+ *   但更深、更稳，避开 Element Plus 默认蓝与蓝紫渐变感。
+ *   通过 CSS 变量覆盖即可生效（本文件在 element-plus/dist/index.css 之后加载），
+ *   不引入额外构建配置。
+ * - 圆角克制：基础 4px / 小 2px，保持管理界面的秩序感，与像素壳的硬朗边线协调。
+ * - 状态色语义固定：运行中=绿 / 启动中=蓝 / 已停止=灰 / 已崩溃=红，
+ *   定义在 --admin-status-* 变量与 .admin-status-badge 徽标中，供仪表盘复用。
+ */
+:root {
+  /* 主色（墨青） */
+  --el-color-primary: #0f766e;
+  --el-color-primary-dark-2: #0b5d57;
+  --el-color-primary-light-3: #3f938c;
+  --el-color-primary-light-5: #7ab5b0;
+  --el-color-primary-light-7: #aed8d4;
+  --el-color-primary-light-8: #cee7e4;
+  --el-color-primary-light-9: #eef6f5;
+
+  /* 成功（运行中 = 绿） */
+  --el-color-success: #2e9e5b;
+  --el-color-success-dark-2: #237a46;
+  --el-color-success-light-3: #64b886;
+  --el-color-success-light-5: #96ccb0;
+  --el-color-success-light-7: #c2e0d0;
+  --el-color-success-light-8: #dcede4;
+  --el-color-success-light-9: #eef7f2;
+
+  /* 警告 */
+  --el-color-warning: #d9860c;
+  --el-color-warning-dark-2: #ae6b09;
+  --el-color-warning-light-3: #e3a64e;
+  --el-color-warning-light-5: #ecc58c;
+  --el-color-warning-light-7: #f5e2c4;
+  --el-color-warning-light-8: #f9edd9;
+  --el-color-warning-light-9: #fcf6ec;
+
+  /* 危险 / 错误（已崩溃 = 红） */
+  --el-color-danger: #d64545;
+  --el-color-danger-dark-2: #ab3737;
+  --el-color-danger-light-3: #e27c7c;
+  --el-color-danger-light-5: #eda7a7;
+  --el-color-danger-light-7: #f6d0d0;
+  --el-color-danger-light-8: #fae2e2;
+  --el-color-danger-light-9: #fdf1f1;
+  --el-color-error: #d64545;
+  --el-color-error-dark-2: #ab3737;
+  --el-color-error-light-3: #e27c7c;
+  --el-color-error-light-5: #eda7a7;
+  --el-color-error-light-7: #f6d0d0;
+  --el-color-error-light-8: #fae2e2;
+  --el-color-error-light-9: #fdf1f1;
+
+  /* 信息（灰） */
+  --el-color-info: #85888e;
+  --el-color-info-dark-2: #6b6e73;
+  --el-color-info-light-3: #a7aaaf;
+  --el-color-info-light-5: #c4c6c9;
+  --el-color-info-light-7: #dedfe1;
+  --el-color-info-light-8: #e9eaeb;
+  --el-color-info-light-9: #f4f4f5;
+
+  /* 圆角克制 */
+  --el-border-radius-base: 4px;
+  --el-border-radius-small: 2px;
+  --el-border-radius-round: 999px;
+
+  /* 管理平台语义状态色（文字 / 底 / 描边） */
+  --admin-status-running: #1d7a45;
+  --admin-status-running-bg: #e9f6ef;
+  --admin-status-running-border: #bfe3cd;
+
+  --admin-status-starting: #2456a8;
+  --admin-status-starting-bg: #eaf1fb;
+  --admin-status-starting-border: #c2d6f2;
+
+  --admin-status-stopped: #5f6670;
+  --admin-status-stopped-bg: #f2f3f5;
+  --admin-status-stopped-border: #dcdfe4;
+
+  --admin-status-crashed: #b23838;
+  --admin-status-crashed-bg: #fdefed;
+  --admin-status-crashed-border: #f3c8c3;
+
+  /* 状态圆点（比文字色更饱和一档） */
+  --admin-dot-running: #2e9e5b;
+  --admin-dot-starting: #3b76d2;
+  --admin-dot-stopped: #9aa0a8;
+  --admin-dot-crashed: #d64545;
+
+  /* 管理平台等宽字体（日志 / 数值列） */
+  --admin-font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* 实例状态徽标：圆点 + 文案的浅底描边胶囊，仪表盘双卡复用 */
+.admin-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--admin-status-stopped-border);
+  color: var(--admin-status-stopped);
+  background: var(--admin-status-stopped-bg);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.admin-status-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--admin-dot-stopped);
+}
+
+.admin-status-badge--running {
+  color: var(--admin-status-running);
+  background: var(--admin-status-running-bg);
+  border-color: var(--admin-status-running-border);
+}
+
+.admin-status-badge--running .admin-status-badge__dot {
+  background: var(--admin-dot-running);
+}
+
+.admin-status-badge--starting {
+  color: var(--admin-status-starting);
+  background: var(--admin-status-starting-bg);
+  border-color: var(--admin-status-starting-border);
+}
+
+.admin-status-badge--starting .admin-status-badge__dot {
+  background: var(--admin-dot-starting);
+  animation: admin-status-blink 1.2s ease-in-out infinite;
+}
+
+.admin-status-badge--crashed {
+  color: var(--admin-status-crashed);
+  background: var(--admin-status-crashed-bg);
+  border-color: var(--admin-status-crashed-border);
+}
+
+.admin-status-badge--crashed .admin-status-badge__dot {
+  background: var(--admin-dot-crashed);
+  animation: admin-status-blink 0.9s steps(2, start) infinite;
+}
+
+@keyframes admin-status-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-status-badge__dot {
+    animation: none !important;
+  }
+}

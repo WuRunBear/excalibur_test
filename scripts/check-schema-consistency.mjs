@@ -6,7 +6,7 @@ import path from 'node:path'
  *
  * 背景：
  * - 服务端权威 schema 定义在 game_server_test/framework/net/colyseus/state/（RoomState.ts 等）
- * - 客户端协议文件是 src/game/net/schema.ts（由 schema:gen + schema:sync 产出）
+ * - 客户端协议文件是 web/src/modules/net/schema.ts（由 schema:gen + schema:sync 产出）
  * - 已知风险：schema-codegen 出错时可能以 exit 0 静默失败（输出空/缺文件），
  *   且 sync-colyseus-schema.mjs 在源缺失时静默跳过——两端 schema 漂移无任何信号，
  *   客户端解码增量补丁时才会爆发。本脚本把「漂移」变成硬失败。
@@ -30,7 +30,7 @@ const serverStateDir =
   process.argv[2] ??
   path.resolve(projectRoot, '..', 'game_server_test', 'framework', 'net', 'colyseus', 'state')
 const clientSchemaPath =
-  process.argv[3] ?? path.resolve(projectRoot, 'src', 'game', 'net', 'schema.ts')
+  process.argv[3] ?? path.resolve(projectRoot, 'web', 'src', 'modules', 'net', 'schema.ts')
 
 /**
  * 从源码中提取 schema 定义：`export class X extends Schema` 的类名与 @type() 字段名。
@@ -133,7 +133,7 @@ if (problems.length > 0) {
     console.error(`  - ${p}`)
   }
   console.error(
-    '[schema:check] 修复：改服务端 state 定义后运行 game_server_test `pnpm schema:gen` + 本工程 `pnpm schema:sync`；勿手改 src/game/net/schema.ts',
+    '[schema:check] 修复：改服务端 state 定义后运行 game_server_test `pnpm schema:gen` + 本工程 `pnpm schema:sync`；勿手改 web/src/modules/net/schema.ts',
   )
   process.exit(1)
 }

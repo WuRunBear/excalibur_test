@@ -1,0 +1,43 @@
+{
+  "extends": "@tsconfig/node22/tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "src": ["../../game_server_test/src"],
+      "src/*": ["../../game_server_test/src/*"],
+      "ai": ["../../game_server_test/framework/ai"],
+      "ai/*": ["../../game_server_test/framework/ai/*"],
+      "components": ["../../game_server_test/framework/components"],
+      "components/*": ["../../game_server_test/framework/components/*"],
+      "world": ["../../game_server_test/framework/world"],
+      "world/*": ["../../game_server_test/framework/world/*"],
+      "config": ["../../game_server_test/framework/config"],
+      "config/*": ["../../game_server_test/framework/config/*"],
+      "network": ["../../game_server_test/framework/net"],
+      "network/*": ["../../game_server_test/framework/net/*"],
+      "simulation": ["../../game_server_test/framework/simulation"],
+      "simulation/*": ["../../game_server_test/framework/simulation/*"],
+      "systems": ["../../game_server_test/framework/systems"],
+      "systems/*": ["../../game_server_test/framework/systems/*"],
+      "utils": ["../../game_server_test/framework/utils"],
+      "utils/*": ["../../game_server_test/framework/utils/*"],
+      "map": ["../../game_server_test/framework/map"],
+      "map/*": ["../../game_server_test/framework/map/*"],
+      "framework": ["../../game_server_test/framework/index.ts"],
+      "framework/*": ["../../game_server_test/framework/*"],
+      "database": ["../../game_server_test/framework"],
+      "database/*": ["../../game_server_test/framework/*"]
+    }
+  },
+  "include": ["src", "gameBridge", "../../game_server_test/framework/bitecs-legacy.d.ts"]
+}
