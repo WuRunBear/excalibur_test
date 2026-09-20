@@ -56,6 +56,8 @@ function makeSnapshot(
     port: role === 'official' ? 3000 : 3200,
     lastExitCode: null,
     lastSignal: null,
+    configPath: null,
+    saveDir: null,
     ...overrides,
   }
 }

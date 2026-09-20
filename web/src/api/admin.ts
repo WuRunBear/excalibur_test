@@ -28,6 +28,10 @@ export interface InstanceSnapshot {
   lastExitCode: number | null
   /** 最近一次退出的信号（正常退出时为 null） */
   lastSignal: string | null
+  /** 预览实例使用的配置路径（指向工作区文件）；回退本体配置时为 null；official 恒 null */
+  configPath: string | null
+  /** 预览实例的存档目录；回退本体配置时为 null；official 恒 null */
+  saveDir: string | null
 }
 
 /** 日志来源：日志文件 tail / 进程 stdout / 进程 stderr。 */
@@ -310,6 +314,45 @@ export function extractValidationErrors(detail: unknown): ValidationError[] | nu
       typeof (item as { jsonPath?: unknown }).jsonPath === 'string' &&
       typeof (item as { message?: unknown }).message === 'string',
   )
+}
+
+// ---------------------------------------------------------------------------
+// 配置上下文（S3-B）
+// ---------------------------------------------------------------------------
+
+/** 一侧（本体 / 工作区）的配置清单指纹摘要。 */
+export interface ConfigContextSide {
+  /** game/ 清单指纹（前端只做前 8 位摘要展示） */
+  fingerprint: string
+  fileCount: number
+}
+
+/** 活动工作区侧信息。 */
+export interface ConfigContextWorkspace extends ConfigContextSide {
+  id: string
+  name: string
+}
+
+/** 工作区 vs 本体的逐文件对比（status 语义与工作区改动一致）。 */
+export interface ConfigContextChange {
+  path: string
+  status: WorkspaceChangeStatus
+}
+
+/** GET /api/config-context → 预览闭环的配置上下文。 */
+export interface ConfigContext {
+  /** 本体 game/ 当前清单 */
+  official: ConfigContextSide
+  /** 活动工作区当前清单；无活动工作区 → null */
+  workspace: ConfigContextWorkspace | null
+  /** 活动工作区与本体一致；无工作区 → true */
+  inSync: boolean
+  /** 工作区 vs 本体逐文件对比 */
+  changes: ConfigContextChange[]
+}
+
+export function fetchConfigContext(): Promise<ConfigContext> {
+  return request('/api/config-context')
 }
 
 export interface AdminChannelHandlers {

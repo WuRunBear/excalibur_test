@@ -189,9 +189,9 @@
             <span class="ws-change__path">{{ change.path }}</span>
             <el-tag
               size="small"
-              :type="changeTagType(change.status)"
+              :type="workspaceChangeTagType(change.status)"
             >
-              {{ changeText(change.status) }}
+              {{ WORKSPACE_CHANGE_TEXT[change.status] }}
             </el-tag>
           </li>
         </ul>
@@ -207,9 +207,10 @@ import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { fetchWorkspaceChanges } from '@/api/admin'
-import type { WorkspaceChange, WorkspaceChangeStatus, WorkspaceMeta } from '@/api/admin'
+import type { WorkspaceChange, WorkspaceMeta } from '@/api/admin'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { formatDateTime } from '@/utils/format'
+import { WORKSPACE_CHANGE_TEXT, workspaceChangeTagType } from '@/utils/workspace'
 
 const store = useWorkspaceStore()
 
@@ -303,22 +304,6 @@ async function openChanges(ws: WorkspaceMeta): Promise<void> {
   } finally {
     changesLoading.value = false
   }
-}
-
-const CHANGE_TEXT: Record<WorkspaceChangeStatus, string> = {
-  added: '新增',
-  modified: '修改',
-  deleted: '删除',
-}
-
-function changeText(status: WorkspaceChangeStatus): string {
-  return CHANGE_TEXT[status]
-}
-
-function changeTagType(status: WorkspaceChangeStatus): 'success' | 'warning' | 'danger' {
-  if (status === 'added') return 'success'
-  if (status === 'modified') return 'warning'
-  return 'danger'
 }
 </script>
 

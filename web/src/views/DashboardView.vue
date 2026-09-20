@@ -73,6 +73,20 @@
               <span class="dash-card__label">运行时长</span>
               <span class="dash-card__value">{{ uptimeText(card) }}</span>
             </div>
+            <!-- S3-B：配置来源（preview 指向工作区配置时 tooltip 展示路径，official 恒为本体） -->
+            <div class="dash-card__cell dash-card__cell--wide">
+              <span class="dash-card__label">配置来源</span>
+              <span class="dash-card__value">
+                <el-tooltip
+                  v-if="card.snap.configPath"
+                  :content="`工作区配置：${card.snap.configPath}`"
+                  placement="top"
+                >
+                  <span class="dash-card__config">工作区配置</span>
+                </el-tooltip>
+                <template v-else>本体配置</template>
+              </span>
+            </div>
           </div>
 
           <div class="dash-card__actions">
@@ -129,6 +143,9 @@
       </el-card>
     </section>
 
+    <!-- S3-B：配置上下文（本体 vs 活动工作区一致性） -->
+    <ConfigContextCard />
+
     <section class="dash-grid">
       <LogConsole role="official" />
       <LogConsole role="preview" />
@@ -141,6 +158,7 @@ defineOptions({ name: 'DashboardView' })
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import ConfigContextCard from 'components/admin/ConfigContextCard.vue'
 import LogConsole from 'components/admin/LogConsole.vue'
 import { INSTANCE_ROLE_LABELS, INSTANCE_STATUS_TEXT } from '@/api/admin'
 import type { InstanceRole, InstanceSnapshot, InstanceStatus } from '@/api/admin'
@@ -404,6 +422,16 @@ onBeforeUnmount(() => {
   background: #f7f8f9;
   border: 1px solid #eef0f2;
   border-radius: 4px;
+}
+
+/* 配置来源整行展示 */
+.dash-card__cell--wide {
+  grid-column: 1 / -1;
+}
+
+.dash-card__config {
+  cursor: default;
+  border-bottom: 1px dashed #b3bac2;
 }
 
 .dash-card__label {

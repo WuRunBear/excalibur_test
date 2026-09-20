@@ -44,6 +44,31 @@
       </div>
 
       <div class="cfg-bar__right">
+        <!-- S3-B：预览实例 chip（状态点语义色，点击去仪表盘看日志） -->
+        <el-tooltip
+          :content="previewTooltip"
+          placement="top"
+        >
+          <span
+            class="cfg-preview"
+            :class="preview ? `cfg-preview--${preview.status}` : 'cfg-preview--unknown'"
+            role="link"
+            tabindex="0"
+            @click="goDashboard"
+            @keydown.enter="goDashboard"
+          >
+            <i class="cfg-preview__dot"></i>预览 :{{ preview?.port ?? 3200 }}
+          </span>
+        </el-tooltip>
+        <!-- S3-B：重启预览（同步等待退出+重启，可达 10s+）；stopped 时切为启动 -->
+        <el-button
+          size="small"
+          :disabled="!preview || instanceStore.isBusy('preview')"
+          :loading="preview !== null && instanceStore.isPending('preview', previewAction)"
+          @click="onPreviewAction"
+        >
+          {{ previewAction === 'start' ? '启动预览' : '重启预览' }}
+        </el-button>
         <span
           v-if="configStore.currentPath"
           class="cfg-path"
@@ -269,16 +294,20 @@
 defineOptions({ name: 'ConfigView' })
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 
 import monaco from '@/utils/monaco'
-import { useConfigStore } from '@/stores/config'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { INSTANCE_STATUS_TEXT } from '@/api/admin'
 import type { ConfigTreeNode, ValidationError } from '@/api/admin'
+import { useConfigStore } from '@/stores/config'
+import { useInstanceStore } from '@/stores/instance'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const workspaceStore = useWorkspaceStore()
 const configStore = useConfigStore()
+const instanceStore = useInstanceStore()
+const router = useRouter()
 
 const treeProps = { label: 'name', children: 'children' } as const
 
@@ -291,6 +320,8 @@ onMounted(() => {
     // 每次进页强制刷新文件树（期间可能在别的页面切换过工作区）
     void configStore.loadTree()
   })
+  // 预览联调入口依赖实例快照（复用 instance store 的 WS 订阅）
+  void instanceStore.ensureLoaded()
   window.addEventListener('keydown', onGlobalKeydown)
 })
 
@@ -425,6 +456,33 @@ const canFormat = computed(
 const canEdit = computed(() => configStore.currentPath !== null && !configStore.fileLoading)
 
 const saving = ref(false)
+
+// ---------------------------------------------------------------------------
+// S3-B：预览联调入口（chip + 重启/启动）
+// ---------------------------------------------------------------------------
+
+const preview = computed(() => instanceStore.snapshots.preview)
+
+/** 状态机不允许 restart（stopped/crashed）时切为 start，与 instance store 语义一致。 */
+const previewAction = computed<'start' | 'restart'>(() => {
+  const status = preview.value?.status
+  return status === 'stopped' || status === 'crashed' ? 'start' : 'restart'
+})
+
+const previewTooltip = computed(() => {
+  const snap = preview.value
+  if (!snap) return '预览实例状态未知'
+  const config = snap.configPath ? `配置：${snap.configPath}` : '配置：本体配置'
+  return `预览实例：${INSTANCE_STATUS_TEXT[snap.status]} · ${config}`
+})
+
+function goDashboard(): void {
+  void router.push('/dashboard')
+}
+
+function onPreviewAction(): void {
+  void instanceStore.performAction('preview', previewAction.value)
+}
 
 function onNodeClick(data: ConfigTreeNode): void {
   if (data.type !== 'file') return
@@ -578,6 +636,67 @@ function onGlobalKeydown(event: KeyboardEvent): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 预览实例 chip：状态点复用全局语义色（running 绿 / starting 蓝 / stopped 灰 / crashed 红） */
+.cfg-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--admin-status-stopped-border);
+  background: var(--admin-status-stopped-bg);
+  color: var(--admin-status-stopped);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cfg-preview__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--admin-dot-stopped);
+}
+
+.cfg-preview--running {
+  color: var(--admin-status-running);
+  background: var(--admin-status-running-bg);
+  border-color: var(--admin-status-running-border);
+}
+
+.cfg-preview--running .cfg-preview__dot {
+  background: var(--admin-dot-running);
+}
+
+.cfg-preview--starting {
+  color: var(--admin-status-starting);
+  background: var(--admin-status-starting-bg);
+  border-color: var(--admin-status-starting-border);
+}
+
+.cfg-preview--starting .cfg-preview__dot {
+  background: var(--admin-dot-starting);
+  animation: admin-status-blink 1.2s ease-in-out infinite;
+}
+
+.cfg-preview--crashed {
+  color: var(--admin-status-crashed);
+  background: var(--admin-status-crashed-bg);
+  border-color: var(--admin-status-crashed-border);
+}
+
+.cfg-preview--crashed .cfg-preview__dot {
+  background: var(--admin-dot-crashed);
+  animation: admin-status-blink 0.9s steps(2, start) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfg-preview__dot {
+    animation: none !important;
+  }
 }
 
 .cfg-alert__body {

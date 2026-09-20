@@ -97,6 +97,65 @@ export class WorkspaceService {
   }
 
   // ------------------------------------------------------------------
+  // S3-A：目录清单描述 / vs 本体对比 / 预览注入材料
+  // ------------------------------------------------------------------
+
+  /**
+   * 描述任意目录的清单级快照（fingerprint 与工作区基线同算法：
+   * 排序 "relPath:sha256\n" 串的 sha256 前 16 位）。
+   * 供 config-context 的"本体 game/ 当前清单"与"工作区当前清单"使用。
+   */
+  async describeDir(rootDir: string): Promise<{
+    fingerprint: string
+    fileCount: number
+    files: Record<string, string>
+  }> {
+    if (!fs.existsSync(rootDir)) {
+      throw new WorkspaceError(404, `目录不存在：${rootDir}`)
+    }
+    const files = await this.scanHashes(rootDir)
+    return { fingerprint: fingerprintOf(files), fileCount: Object.keys(files).length, files }
+  }
+
+  /** 活动工作区（当前镜像）vs 本体 game/ 的逐文件对比（S4 落盘 diff 的清单级基础）。 */
+  async diffAgainstSource(): Promise<WorkspaceChange[]> {
+    const source = await this.describeDir(gameConfigsDir)
+    const activeId = await this.getActiveId()
+    if (!activeId) return []
+    try {
+      const wsDir = this.mustExist(activeId)
+      const gameDir = path.join(wsDir, 'game')
+      const current = fs.existsSync(gameDir) ? await this.scanHashes(gameDir) : {}
+      return diffMaps(source.files, current)
+    } catch {
+      // 活动工作区已被删：无差异可比。
+      return []
+    }
+  }
+
+  /** 活动工作区 game/ 的清单摘要；无活动工作区 / 已被删 / 镜像缺 game 目录 → null。 */
+  async describeActiveWorkspaceGame(): Promise<{
+    id: string
+    name: string
+    fingerprint: string
+    fileCount: number
+  } | null> {
+    const id = await this.getActiveId()
+    if (!id) return null
+    let wsDir: string
+    try {
+      wsDir = this.mustExist(id)
+    } catch {
+      return null
+    }
+    const gameDir = path.join(wsDir, 'game')
+    if (!fs.existsSync(gameDir)) return null
+    const desc = await this.describeDir(gameDir)
+    const meta = await this.readMeta(wsDir)
+    return { id, name: meta.name, fingerprint: desc.fingerprint, fileCount: desc.fileCount }
+  }
+
+  // ------------------------------------------------------------------
   // 生命周期
   // ------------------------------------------------------------------
 
@@ -266,18 +325,28 @@ export class WorkspaceService {
       return [] // 无基线清单（半成品）：视为无基线可比
     }
     const current = fs.existsSync(gameDir) ? await this.scanHashes(gameDir) : {}
+    return diffMaps(manifest.files, current)
+  }
 
-    const changes: WorkspaceChange[] = []
-    for (const [rel, hash] of Object.entries(current)) {
-      const base = manifest.files[rel]
-      if (base === undefined) changes.push({ path: rel, status: 'added' })
-      else if (base !== hash) changes.push({ path: rel, status: 'modified' })
+  /**
+   * 预览实例的 env 注入材料（S3-A）：活动工作区的 game.json 绝对路径与
+   * .preview-saves 目录（自动创建）。无活动工作区或镜像缺 game.json → null
+   * （调用方回退为仅注入 PORT 并记日志）。
+   */
+  async getPreviewInjection(): Promise<{ configPath: string; saveDir: string } | null> {
+    const id = await this.getActiveId()
+    if (!id) return null
+    let wsDir: string
+    try {
+      wsDir = this.mustExist(id)
+    } catch {
+      return null
     }
-    for (const rel of Object.keys(manifest.files)) {
-      if (current[rel] === undefined) changes.push({ path: rel, status: 'deleted' })
-    }
-    changes.sort((a, b) => a.path.localeCompare(b.path))
-    return changes
+    const configPath = path.join(wsDir, 'game', 'game.json')
+    if (!fs.existsSync(configPath)) return null
+    const saveDir = path.join(wsDir, '.preview-saves')
+    await fsp.mkdir(saveDir, { recursive: true })
+    return { configPath, saveDir }
   }
 }
 
@@ -288,6 +357,21 @@ function fingerprintOf(files: Record<string, string>): string {
     .map((rel) => `${rel}:${files[rel]}\n`)
     .join('')
   return sha256Hex(canonical).slice(0, 16)
+}
+
+/** 通用清单对比：base 为基准（本体/基线），current 为当前；added/modified/deleted 按路径字典序。 */
+function diffMaps(base: Record<string, string>, current: Record<string, string>): WorkspaceChange[] {
+  const changes: WorkspaceChange[] = []
+  for (const [rel, hash] of Object.entries(current)) {
+    const baseHash = base[rel]
+    if (baseHash === undefined) changes.push({ path: rel, status: 'added' })
+    else if (baseHash !== hash) changes.push({ path: rel, status: 'modified' })
+  }
+  for (const rel of Object.keys(base)) {
+    if (current[rel] === undefined) changes.push({ path: rel, status: 'deleted' })
+  }
+  changes.sort((a, b) => a.path.localeCompare(b.path))
+  return changes
 }
 
 /** 工作区服务单例。 */

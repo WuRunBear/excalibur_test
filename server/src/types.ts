@@ -27,10 +27,15 @@ export interface InstanceSnapshot {
   startedAt: number | null
   /** 展示端口：official 由本体 .env/OFFICIAL_PORT 解析；preview 固定 3200 */
   port: number
-  /** 最近一次退出的退出码（被信号杀死时为 null） */
   lastExitCode: number | null
-  /** 最近一次退出的信号（正常退出时为 null） */
   lastSignal: NodeJS.Signals | null
+  /**
+   * S3-A：本次启动注入的 GAME_CONFIG_PATH（工作区 game.json 绝对路径）。
+   * preview 保留上次启动的值（crash 后不清空）；回退本体配置或 official → null。
+   */
+  configPath: string | null
+  /** S3-A：本次启动注入的 SAVE_DIR（工作区 .preview-saves）；回退/official → null */
+  saveDir: string | null
 }
 
 /** 进程流来源（stdout / stderr）。 */
@@ -86,4 +91,32 @@ export interface ConfigValidationError {
   jsonPath: string
   message: string
   line?: number
+}
+
+// ---------------------------------------------------------------------------
+// S3-A：配置上下文（本体 vs 工作区 同步状态）
+// ---------------------------------------------------------------------------
+
+/** 一侧配置目录的清单级摘要（fingerprint 与工作区基线同算法）。 */
+export interface ConfigContextSummary {
+  fingerprint: string
+  fileCount: number
+}
+
+/** 活动工作区的清单级摘要。 */
+export interface WorkspaceConfigSummary extends ConfigContextSummary {
+  id: string
+  name: string
+}
+
+/** GET /api/config-context 响应 detail。 */
+export interface ConfigContextPayload {
+  /** 本体 game/ 当前清单 */
+  official: ConfigContextSummary
+  /** 活动工作区当前清单；无活动工作区 → null */
+  workspace: WorkspaceConfigSummary | null
+  /** workspace 与本体 fingerprint 是否一致；workspace 为 null → true */
+  inSync: boolean
+  /** 活动工作区 vs 本体 game/ 逐文件对比；无活动工作区 → [] */
+  changes: WorkspaceChange[]
 }

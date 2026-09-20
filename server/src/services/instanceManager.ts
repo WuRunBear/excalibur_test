@@ -23,6 +23,7 @@ import type {
   InstanceStatus,
   ProcessSource,
 } from '../types.js'
+import { workspaceService } from './workspaceService.js'
 
 /** POSIX 下 SIGTERM 后等待退出再升级 SIGKILL 的宽限时间。 */
 const KILL_GRACE_MS = 5_000
@@ -63,6 +64,9 @@ export class InstanceManager {
   private startedAt: number | null = null
   private lastExitCode: number | null = null
   private lastSignal: NodeJS.Signals | null = null
+  /** S3-A：最近一次启动注入的 GAME_CONFIG_PATH / SAVE_DIR（crash 后保留，下次启动覆盖）。 */
+  private configPath: string | null = null
+  private saveDir: string | null = null
 
   private readonly stateListeners = new Set<StateListener>()
   private readonly lineListeners = new Set<LineListener>()
@@ -101,6 +105,9 @@ export class InstanceManager {
       port: rolePort(this.role),
       lastExitCode: this.lastExitCode,
       lastSignal: this.lastSignal,
+      // official 恒 null；preview 保留最近一次启动的注入值（crash 后不清空）
+      configPath: this.role === 'official' ? null : this.configPath,
+      saveDir: this.role === 'official' ? null : this.saveDir,
     }
   }
 
@@ -117,10 +124,29 @@ export class InstanceManager {
       throw new ConflictError(`instance "${this.role}" is ${this.status}; stop it first`)
     }
 
-    // 环境注入：official 继承管理后端环境（S1 不注入）；preview 注入 PORT=3200
-    // （游戏进程 dotenv 不覆盖已存在的变量，因此注入值优先于本体 .env）。
+    // 环境注入（S3-A）：
+    // - official：纯继承管理后端环境，不注入任何变量（恒回退本体配置）。
+    // - preview：PORT=3200 恒注入；若此刻存在活动工作区，再注入
+    //   GAME_CONFIG_PATH（工作区 game.json 绝对路径）与 SAVE_DIR（工作区
+    //   .preview-saves，自动创建）。在 spawn 前动态解析（非模块加载时固化），
+    //   保证每次 start 都使用当前活动工作区。游戏进程 dotenv 不覆盖已注入
+    //   变量，因此注入值优先于本体 .env。
     const env: NodeJS.ProcessEnv = { ...process.env }
-    if (this.role === 'preview') env.PORT = String(PREVIEW_PORT)
+    if (this.role === 'preview') {
+      env.PORT = String(PREVIEW_PORT)
+      const injection = await workspaceService.getPreviewInjection()
+      if (injection) {
+        env.GAME_CONFIG_PATH = injection.configPath
+        env.SAVE_DIR = injection.saveDir
+        this.configPath = injection.configPath
+        this.saveDir = injection.saveDir
+      } else {
+        // 回退现状（S1-C 行为）：仅注入 PORT，游戏进程用本体配置。
+        this.configPath = null
+        this.saveDir = null
+        console.warn('[instance:preview] 无活动工作区，回退本体配置（仅注入 PORT）')
+      }
+    }
 
     const spawnOptions: SpawnOptionsWithStdioTuple<'ignore', 'pipe', 'pipe'> = {
       cwd: GAME_ROOT,
