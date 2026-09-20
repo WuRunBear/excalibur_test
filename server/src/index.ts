@@ -18,6 +18,7 @@ import express from 'express'
 import type { NextFunction, Request, Response } from 'express'
 
 import { ADMIN_PORT, GAME_ROOT, corsOrigins } from './config.js'
+import { applyRouter, backupsRouter } from './routes/apply.js'
 import { configContextRouter } from './routes/configContext.js'
 import { configsRouter } from './routes/configs.js'
 import { processRouter } from './routes/process.js'
@@ -56,6 +57,8 @@ app.use('/api/instances', processRouter)
 app.use('/api/workspaces', workspaceRouter)
 app.use('/api/configs', configsRouter)
 app.use('/api/config-context', configContextRouter)
+app.use('/api/apply', applyRouter)
+app.use('/api/backups', backupsRouter)
 
 // API 404（统一响应结构）
 app.use((req, res) => {

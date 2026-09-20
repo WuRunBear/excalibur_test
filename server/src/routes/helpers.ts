@@ -38,7 +38,7 @@ export function handleError(res: Response, err: unknown): void {
     return
   }
   if (err instanceof WorkspaceError) {
-    fail(res, err.status, err.message)
+    fail(res, err.status, err.message, err.detail)
     return
   }
   console.error('[routes] unexpected error:', err)

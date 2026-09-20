@@ -18,6 +18,12 @@ export function formatDateTime(ts: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${formatClock(ts)}`
 }
 
+/** epoch ms 或 ISO 字符串 → YYYY-MM-DD HH:mm:ss；解析失败原样返回（后端时间字段类型兜底）。 */
+export function formatTimestamp(value: number | string): string {
+  const ts = typeof value === 'number' ? value : Date.parse(value)
+  return Number.isFinite(ts) ? formatDateTime(ts) : String(value)
+}
+
 /**
  * 时长（ms）→ 中文可读文本：42 秒 / 3 分 42 秒 / 2 小时 05 分 / 1 天 4 小时。
  * 非法输入（负数 / NaN）返回占位符「—」。

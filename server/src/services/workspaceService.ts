@@ -18,13 +18,15 @@ import path from 'node:path'
 import { gameConfigsDir, workspacesDir } from '../config.js'
 import type { WorkspaceChange, WorkspaceMeta } from '../types.js'
 
-/** 服务层可预期的错误（REST 层映射为对应 HTTP 状态码）。 */
+/** 服务层可预期的错误（REST 层映射为对应 HTTP 状态码；可选 detail 随响应透出）。 */
 export class WorkspaceError extends Error {
   readonly status: number
-  constructor(status: number, message: string) {
+  readonly detail?: unknown
+  constructor(status: number, message: string, detail?: unknown) {
     super(message)
     this.name = 'WorkspaceError'
     this.status = status
+    this.detail = detail
   }
 }
 
@@ -153,6 +155,19 @@ export class WorkspaceService {
     const desc = await this.describeDir(gameDir)
     const meta = await this.readMeta(wsDir)
     return { id, name: meta.name, fingerprint: desc.fingerprint, fileCount: desc.fileCount }
+  }
+
+  /**
+   * S4-A：落盘后把基线清单刷新为当前工作区状态（/api/workspaces/:id/changes 归零）。
+   * 返回新指纹（应与活动工作区 game/ 清单一致）。
+   */
+  async refreshBaseManifest(id: string): Promise<string> {
+    const wsDir = this.mustExist(id)
+    const gameDir = path.join(wsDir, 'game')
+    const files = await this.scanHashes(gameDir)
+    const manifest: BaseManifest = { files, fingerprint: fingerprintOf(files) }
+    await fsp.writeFile(path.join(wsDir, BASE_MANIFEST_FILE), JSON.stringify(manifest, null, 2), 'utf8')
+    return manifest.fingerprint
   }
 
   // ------------------------------------------------------------------

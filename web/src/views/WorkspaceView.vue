@@ -138,6 +138,33 @@
       </el-card>
     </div>
 
+    <!-- S4-B：落盘审查 + 备份回滚（页内页签，不开新路由） -->
+    <el-tabs
+      v-model="activeTab"
+      class="ws-tabs"
+    >
+      <el-tab-pane name="apply">
+        <template #label>
+          <span class="ws-tab">
+            落盘审查
+            <span
+              v-if="pendingCount > 0"
+              class="ws-tab__count"
+              >{{ pendingCount }}</span
+            >
+          </span>
+        </template>
+        <ApplyReviewPanel />
+      </el-tab-pane>
+      <el-tab-pane
+        lazy
+        name="backups"
+        label="备份与回滚"
+      >
+        <BackupsPanel />
+      </el-tab-pane>
+    </el-tabs>
+
     <el-dialog
       v-model="dialogVisible"
       :title="dialogMode === 'create' ? '新建工作区' : '重命名工作区'"
@@ -203,16 +230,22 @@
 <script setup lang="ts">
 defineOptions({ name: 'WorkspaceView' })
 
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import BackupsPanel from 'components/admin/BackupsPanel.vue'
+import ApplyReviewPanel from 'components/admin/ApplyReviewPanel.vue'
 import { fetchWorkspaceChanges } from '@/api/admin'
 import type { WorkspaceChange, WorkspaceMeta } from '@/api/admin'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { formatDateTime } from '@/utils/format'
+import { formatTimestamp } from '@/utils/format'
 import { WORKSPACE_CHANGE_TEXT, workspaceChangeTagType } from '@/utils/workspace'
 
 const store = useWorkspaceStore()
+
+// S4-B：页签状态与改动数徽标
+const activeTab = ref<'apply' | 'backups'>('apply')
+const pendingCount = computed(() => store.activeWorkspace?.changedFiles ?? 0)
 
 onMounted(() => {
   void store.ensureLoaded()
@@ -220,8 +253,7 @@ onMounted(() => {
 
 /** 契约约定 createdAt 为 epoch ms；对 ISO 字符串做兜底解析。 */
 function formatCreatedAt(value: number | string): string {
-  const ts = typeof value === 'number' ? value : Date.parse(value)
-  return Number.isFinite(ts) ? formatDateTime(ts) : String(value)
+  return formatTimestamp(value)
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +368,29 @@ async function openChanges(ws: WorkspaceMeta): Promise<void> {
   margin-top: 2px;
   font-size: 12px;
   color: #8a919c;
+}
+
+/* 落盘审查 / 备份回滚页签 */
+.ws-tabs :deep(.el-tabs__header) {
+  margin-bottom: 12px;
+}
+
+.ws-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-tab__count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #d9860c;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .ws-alert__body {

@@ -72,16 +72,18 @@ export const INSTANCE_STATUS_TEXT: Record<InstanceStatus, string> = {
   crashed: '已崩溃',
 }
 
-/** 后端业务错误：携带统一响应中的 code、message 与 detail（校验失败时 detail.errors 为错误列表）。 */
+/** 后端业务错误：携带统一响应中的 code、message、detail 与 HTTP 状态码（区分 422/409 等失败场景）。 */
 export class AdminApiError extends Error {
   readonly code: number
   readonly detail: unknown
+  readonly status: number
 
-  constructor(message: string, code: number, detail?: unknown) {
+  constructor(message: string, code: number, detail?: unknown, status = 0) {
     super(message)
     this.name = 'AdminApiError'
     this.code = code
     this.detail = detail
+    this.status = status
   }
 }
 
@@ -108,7 +110,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { Accept: 'application/json', ...init?.headers },
     })
   } catch {
-    throw new AdminApiError('无法连接管理后端，请确认服务已启动', -1)
+    throw new AdminApiError('无法连接管理后端，请确认服务已启动', -1, undefined, 0)
   }
 
   let payload: AdminEnvelope<T> | null = null
@@ -119,10 +121,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!payload) {
-    throw new AdminApiError(`管理后端响应异常（HTTP ${res.status}）`, -1)
+    throw new AdminApiError(`管理后端响应异常（HTTP ${res.status}）`, -1, undefined, res.status)
   }
   if (payload.code !== 0) {
-    throw new AdminApiError(payload.message || '请求失败', payload.code, payload.detail)
+    throw new AdminApiError(payload.message || '请求失败', payload.code, payload.detail, res.status)
   }
   return payload.detail as T
 }
@@ -353,6 +355,104 @@ export interface ConfigContext {
 
 export function fetchConfigContext(): Promise<ConfigContext> {
   return request('/api/config-context')
+}
+
+// ---------------------------------------------------------------------------
+// 落盘与备份（S4-B）
+// ---------------------------------------------------------------------------
+
+/** 落盘计划中的单个文件（diff 为 unified 文本）。 */
+export interface ApplyPlanFile {
+  path: string
+  status: WorkspaceChangeStatus
+  additions: number
+  deletions: number
+  diff: string
+  /** 本体当前内容；added → null */
+  sourceContent: string | null
+  /** 文件级校验（schemaKind null → true） */
+  valid: boolean
+  schemaKind: string | null
+  validationErrors: ValidationError[]
+}
+
+/** POST /api/apply/plan → 工作区 vs 本体的落盘计划（只读，不落盘）。 */
+export interface ApplyPlan {
+  files: ApplyPlanFile[]
+}
+
+export function fetchApplyPlan(): Promise<ApplyPlan> {
+  return request('/api/apply/plan', { method: 'POST' })
+}
+
+/** 落盘成功回执。 */
+export interface ApplyReceipt {
+  backupId: string
+  applied: { path: string; status: WorkspaceChangeStatus }[]
+  durationMs: number
+}
+
+/** POST /api/apply/execute {paths} → 写回本体（被覆盖/删除文件自动备份；成功后工作区 changes 归零）。 */
+export function executeApply(paths: string[]): Promise<ApplyReceipt> {
+  return request('/api/apply/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths }),
+  })
+}
+
+/** 备份文件动作：覆盖 / 删除 / 新增。 */
+export type BackupFileAction = 'overwritten' | 'deleted' | 'added'
+
+export interface BackupFile {
+  path: string
+  action: BackupFileAction
+}
+
+export interface BackupMeta {
+  backupId: string
+  /** epoch ms（沿用时间约定；展示侧对 ISO 字符串兜底） */
+  createdAt: number
+  files: BackupFile[]
+}
+
+/** GET /api/backups → 备份列表。 */
+export function fetchBackups(): Promise<{ items: BackupMeta[] }> {
+  return request('/api/backups')
+}
+
+/** POST /api/backups/:backupId/rollback → 回滚（备份内容写回本体）。 */
+export function rollbackBackup(
+  backupId: string,
+): Promise<{ restored: { path: string; action: BackupFileAction }[] }> {
+  return request(`/api/backups/${encodeURIComponent(backupId)}/rollback`, { method: 'POST' })
+}
+
+/** execute 422 场景一：部分文件校验未通过（detail.invalid）。 */
+export interface ApplyInvalidFile {
+  path: string
+  validationErrors: ValidationError[]
+}
+
+/** 从 AdminApiError.detail 提取 422 invalid 文件列表。 */
+export function extractApplyInvalidFiles(detail: unknown): ApplyInvalidFile[] | null {
+  if (typeof detail !== 'object' || detail === null) return null
+  const invalid = (detail as { invalid?: unknown }).invalid
+  if (!Array.isArray(invalid)) return null
+  return invalid.filter(
+    (item): item is ApplyInvalidFile =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as { path?: unknown }).path === 'string' &&
+      Array.isArray((item as { validationErrors?: unknown }).validationErrors),
+  )
+}
+
+/** 从 AdminApiError.detail 提取 message（422 整体校验未通过：detail.message）。 */
+export function extractDetailMessage(detail: unknown): string | null {
+  if (typeof detail !== 'object' || detail === null) return null
+  const message = (detail as { message?: unknown }).message
+  return typeof message === 'string' && message.trim() ? message : null
 }
 
 export interface AdminChannelHandlers {

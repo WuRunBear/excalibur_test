@@ -120,3 +120,67 @@ export interface ConfigContextPayload {
   /** 活动工作区 vs 本体 game/ 逐文件对比；无活动工作区 → [] */
   changes: WorkspaceChange[]
 }
+
+// ---------------------------------------------------------------------------
+// S4-A：落盘（Apply）/ 备份 / 回滚
+// ---------------------------------------------------------------------------
+
+/** 落盘计划中的单文件条目。 */
+export interface ApplyFilePlan {
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+  /** unified diff 统计：新增行数 */
+  additions: number
+  /** unified diff 统计：删除行数 */
+  deletions: number
+  /** unified diff 文本（本体旧文 vs 工作区新文；added 本体侧为空，deleted 工作区侧为空） */
+  diff: string
+  /** 本体当前文件内容：added → null，modified/deleted → 本体旧文 */
+  sourceContent: string | null
+  /** 工作区内容的文件级校验（deleted → true；schemaKind null → true） */
+  valid: boolean
+  schemaKind: string | null
+  validationErrors: ConfigValidationError[]
+}
+
+/** POST /api/apply/plan 响应 detail。 */
+export interface ApplyPlanPayload {
+  files: ApplyFilePlan[]
+}
+
+/** 落盘执行后的单文件结果（action 语义同备份条目）。 */
+export interface AppliedFile {
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+}
+
+/** POST /api/apply/execute 响应 detail。 */
+export interface ApplyExecutePayload {
+  backupId: string
+  applied: AppliedFile[]
+  durationMs: number
+}
+
+/** 备份内单文件条目：action 描述落盘时对本体做的动作。 */
+export type BackupFileAction = 'overwritten' | 'deleted' | 'added'
+export interface BackupFileEntry {
+  path: string
+  action: BackupFileAction
+}
+
+/** 单个备份的 manifest 摘要。 */
+export interface BackupInfo {
+  backupId: string
+  createdAt: number
+  files: BackupFileEntry[]
+}
+
+/** GET /api/backups 响应 detail（createdAt 倒序）。 */
+export interface BackupListPayload {
+  items: BackupInfo[]
+}
+
+/** POST /api/backups/:backupId/rollback 响应 detail（restored 为逆操作明细，action 沿用备份原值）。 */
+export interface RollbackPayload {
+  restored: BackupFileEntry[]
+}
