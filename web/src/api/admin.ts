@@ -68,14 +68,16 @@ export const INSTANCE_STATUS_TEXT: Record<InstanceStatus, string> = {
   crashed: '已崩溃',
 }
 
-/** 后端业务错误：携带统一响应中的 code 与 message。 */
+/** 后端业务错误：携带统一响应中的 code、message 与 detail（校验失败时 detail.errors 为错误列表）。 */
 export class AdminApiError extends Error {
   readonly code: number
+  readonly detail: unknown
 
-  constructor(message: string, code: number) {
+  constructor(message: string, code: number, detail?: unknown) {
     super(message)
     this.name = 'AdminApiError'
     this.code = code
+    this.detail = detail
   }
 }
 
@@ -116,7 +118,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new AdminApiError(`管理后端响应异常（HTTP ${res.status}）`, -1)
   }
   if (payload.code !== 0) {
-    throw new AdminApiError(payload.message || '请求失败', payload.code)
+    throw new AdminApiError(payload.message || '请求失败', payload.code, payload.detail)
   }
   return payload.detail as T
 }
@@ -153,6 +155,161 @@ export interface RecentLogs {
 /** GET /api/instances/:role/logs?lines=N → 环形缓冲最近 N 行（按时间正序）。 */
 export function fetchRecentLogs(role: InstanceRole, lines = 200): Promise<RecentLogs> {
   return request<RecentLogs>(`/api/instances/${role}/logs?lines=${lines}`)
+}
+
+// ---------------------------------------------------------------------------
+// 工作区（S2-B）
+// ---------------------------------------------------------------------------
+
+/** 工作区元信息（本体游戏的隔离副本；createdAt 为 epoch ms，沿用快照时间约定）。 */
+export interface WorkspaceMeta {
+  id: string
+  name: string
+  createdAt: number
+  /** 创建时基于本体文件的指纹（展示 / 诊断用，前端不解读） */
+  baseFingerprint: string
+  /** 相对本体的改动文件数 */
+  changedFiles: number
+}
+
+/** GET /api/workspaces → 列表与当前活动工作区。 */
+export interface WorkspaceList {
+  activeId: string | null
+  items: WorkspaceMeta[]
+}
+
+export function fetchWorkspaces(): Promise<WorkspaceList> {
+  return request('/api/workspaces')
+}
+
+/** POST /api/workspaces {name} → 新建并自动激活。 */
+export function createWorkspace(name: string): Promise<WorkspaceMeta> {
+  return request('/api/workspaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** POST /api/workspaces/:id/activate → 激活（切换）工作区。 */
+export function activateWorkspace(id: string): Promise<WorkspaceMeta> {
+  return request(`/api/workspaces/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+}
+
+/** PATCH /api/workspaces/:id {name} → 重命名。 */
+export function renameWorkspace(id: string, name: string): Promise<WorkspaceMeta> {
+  return request(`/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** DELETE /api/workspaces/:id → 删除（仅隔离副本，本体无痕）。 */
+export function deleteWorkspace(id: string): Promise<{ id: string }> {
+  return request(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/** 改动文件状态。 */
+export type WorkspaceChangeStatus = 'added' | 'modified' | 'deleted'
+
+export interface WorkspaceChange {
+  path: string
+  status: WorkspaceChangeStatus
+}
+
+/** GET /api/workspaces/:id/changes → 改动文件清单。 */
+export function fetchWorkspaceChanges(id: string): Promise<{ files: WorkspaceChange[] }> {
+  return request(`/api/workspaces/${encodeURIComponent(id)}/changes`)
+}
+
+// ---------------------------------------------------------------------------
+// 配置编辑（S2-B，作用于活动工作区；无活动工作区时后端返回 code≠0）
+// ---------------------------------------------------------------------------
+
+/** 配置文件树节点。 */
+export interface ConfigTreeNode {
+  name: string
+  path: string
+  type: 'dir' | 'file'
+  children?: ConfigTreeNode[]
+}
+
+/** GET /api/configs/tree → 活动工作区 game/ 目录树。 */
+export function fetchConfigTree(): Promise<{ tree: ConfigTreeNode }> {
+  return request('/api/configs/tree')
+}
+
+/** GET /api/configs/file?path=rel → 文件内容与 schema 类型。 */
+export interface ConfigFile {
+  path: string
+  content: string
+  /** 'GameDefinition' | 'Archetype' | 'MapRegistry' | 规则名 | null（无 schema，不校验） */
+  schemaKind: string | null
+}
+
+export function fetchConfigFile(path: string): Promise<ConfigFile> {
+  return request(`/api/configs/file?path=${encodeURIComponent(path)}`)
+}
+
+/** 校验错误（jsonPath 定位字段；line 为 1-based 行号，可缺省）。 */
+export interface ValidationError {
+  jsonPath: string
+  message: string
+  line?: number
+}
+
+/** PUT /api/configs/file {path, content} → 成功 { path, valid: true }；校验失败 code 1 + detail.errors。 */
+export interface ConfigSaveResult {
+  path: string
+  valid: true
+}
+
+export function saveConfigFile(path: string, content: string): Promise<ConfigSaveResult> {
+  return request('/api/configs/file', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  })
+}
+
+/** POST /api/configs/validate {path, content} → 不落盘的当前文件校验。 */
+export interface ConfigValidateResult {
+  schemaKind: string | null
+  valid: boolean
+  errors: ValidationError[]
+}
+
+export function validateConfigFile(path: string, content: string): Promise<ConfigValidateResult> {
+  return request('/api/configs/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  })
+}
+
+/** POST /api/configs/validate-all → 整体校验活动工作区全部配置。 */
+export interface ConfigValidateAllResult {
+  valid: boolean
+  message: string
+}
+
+export function validateAllConfigs(): Promise<ConfigValidateAllResult> {
+  return request('/api/configs/validate-all', { method: 'POST' })
+}
+
+/** 从 AdminApiError.detail 提取校验错误列表（PUT 校验失败：code 1 + detail.errors）。 */
+export function extractValidationErrors(detail: unknown): ValidationError[] | null {
+  if (typeof detail !== 'object' || detail === null) return null
+  const errors = (detail as { errors?: unknown }).errors
+  if (!Array.isArray(errors)) return null
+  return errors.filter(
+    (item): item is ValidationError =>
+      typeof item === 'object' &&
+      item !== null &&
+      typeof (item as { jsonPath?: unknown }).jsonPath === 'string' &&
+      typeof (item as { message?: unknown }).message === 'string',
+  )
 }
 
 export interface AdminChannelHandlers {

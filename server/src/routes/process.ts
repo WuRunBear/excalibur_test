@@ -9,31 +9,12 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { ConflictError, getInstanceManager, isInstanceRole } from '../services/instanceManager.js'
+import { getInstanceManager, isInstanceRole } from '../services/instanceManager.js'
 import { logStream } from '../services/logStream.js'
 import type { InstanceRole } from '../types.js'
+import { fail, handleError, ok } from './helpers.js'
 
 export const processRouter = Router()
-
-/** 成功响应。 */
-function ok(res: Response, detail: unknown): void {
-  res.json({ code: 0, message: 'ok', detail })
-}
-
-/** 错误响应。 */
-function fail(res: Response, status: number, message: string, detail?: unknown): void {
-  res.status(status).json({ code: 1, message, ...(detail !== undefined ? { detail } : {}) })
-}
-
-/** 统一异常映射：ConflictError → 409，其余 → 500。 */
-function handleError(res: Response, err: unknown): void {
-  if (err instanceof ConflictError) {
-    fail(res, err.status, err.message)
-    return
-  }
-  console.error('[routes/process] unexpected error:', err)
-  fail(res, 500, err instanceof Error ? err.message : String(err))
-}
 
 /** 校验 :role 参数，非法时返回 false（已写 400 响应）。 */
 function checkRole(res: Response, role: string): role is InstanceRole {

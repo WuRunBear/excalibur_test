@@ -33,6 +33,9 @@ export const gameLogsDir = path.join(GAME_ROOT, 'logs')
 /** 本体游戏日志文件（logStream tail 的目标，不存在时容错等待）。 */
 export const gameLogFile = path.join(gameLogsDir, 'game.log')
 
+/** 本体配置目录（S2-A 工作区镜像源：<GAME_ROOT>/game）。 */
+export const gameConfigsDir = path.join(GAME_ROOT, 'game')
+
 /** 管理端工作区目录（S2 文件系统通道使用，本阶段仅定义，不创建）。 */
 export const workspacesDir = path.join(repoRoot, 'server', 'workspaces')
 /** 备份目录（S3 存档通道使用，本阶段仅定义，不创建）。 */

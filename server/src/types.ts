@@ -49,3 +49,41 @@ export interface LogMessage {
   /** 时间戳（epoch ms） */
   ts: number
 }
+
+// ---------------------------------------------------------------------------
+// S2-A：工作区 / 配置读写
+// ---------------------------------------------------------------------------
+
+/** 工作区元信息（REST WorkspaceMeta）。 */
+export interface WorkspaceMeta {
+  id: string
+  name: string
+  /** 创建时间（epoch ms） */
+  createdAt: number
+  /** 基线指纹（镜像生成时对全部文件哈希的聚合，sha256 前 16 位） */
+  baseFingerprint: string
+  /** 相对基线的变更文件数（added+modified+deleted） */
+  changedFiles: number
+}
+
+/** 单个文件的变更状态（当前镜像 vs .base-manifest.json）。 */
+export interface WorkspaceChange {
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+}
+
+/** 配置文件树节点（目录在前、同级字典序）。 */
+export interface ConfigTreeNode {
+  name: string
+  /** 相对工作区 game 目录的路径（'/' 分隔） */
+  path: string
+  type: 'dir' | 'file'
+  children?: ConfigTreeNode[]
+}
+
+/** 配置校验错误（jsonPath 如 "components[0].kind"；line 为启发式定位，尽力而为）。 */
+export interface ConfigValidationError {
+  jsonPath: string
+  message: string
+  line?: number
+}

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import { IconDashboard, IconGamepad } from '@pixelium/web-vue/icon-pa/es'
+import { IconCode, IconDashboard, IconFolder, IconGamepad } from '@pixelium/web-vue/icon-pa/es'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -37,6 +37,18 @@ const router = createRouter({
           path: '/dashboard',
           component: () => import('views/DashboardView.vue'),
           meta: { title: '仪表盘', icon: IconDashboard },
+        },
+        {
+          name: 'Workspace',
+          path: '/workspace',
+          component: () => import('views/WorkspaceView.vue'),
+          meta: { title: '工作区', icon: IconFolder },
+        },
+        {
+          name: 'Config',
+          path: '/config',
+          component: () => import('views/ConfigView.vue'),
+          meta: { title: '配置编辑', icon: IconCode },
         },
       ],
     },

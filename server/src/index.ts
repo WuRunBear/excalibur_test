@@ -18,7 +18,9 @@ import express from 'express'
 import type { NextFunction, Request, Response } from 'express'
 
 import { ADMIN_PORT, GAME_ROOT, corsOrigins } from './config.js'
+import { configsRouter } from './routes/configs.js'
 import { processRouter } from './routes/process.js'
+import { workspaceRouter } from './routes/workspace.js'
 import { instanceManagers } from './services/instanceManager.js'
 import { logStream } from './services/logStream.js'
 import type { WsChannel } from './ws/hub.js'
@@ -39,7 +41,7 @@ app.use((req, res, next) => {
     res.setHeader('Vary', 'Origin')
   }
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
     res.setHeader('Access-Control-Max-Age', '600')
     res.status(204).end()
@@ -50,6 +52,8 @@ app.use((req, res, next) => {
 
 // REST 路由
 app.use('/api/instances', processRouter)
+app.use('/api/workspaces', workspaceRouter)
+app.use('/api/configs', configsRouter)
 
 // API 404（统一响应结构）
 app.use((req, res) => {
