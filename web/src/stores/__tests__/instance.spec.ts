@@ -108,6 +108,27 @@ describe('useInstanceStore', () => {
     expect(mocks.messageSuccess).toHaveBeenCalledTimes(1)
   })
 
+  it('start 在途期间收到 WS running 推送时，晚到的 REST 响应不得回退状态', async () => {
+    const store = await loadStore()
+    let resolveStart!: (value: InstanceSnapshot) => void
+    mocks.startInstance.mockReturnValue(
+      new Promise<InstanceSnapshot>((resolve) => {
+        resolveStart = resolve
+      }),
+    )
+    const pending = store.performAction('official', 'start')
+    expect(store.snapshots.official?.status).toBe('starting')
+
+    // 在途期间 WS 推送 running（REST 响应快照生成早于它，晚到不应覆盖）
+    mocks.handlers?.onMessage(makeSnapshot('official', 'running', { pid: 9, startedAt: 456 }))
+    expect(store.snapshots.official?.status).toBe('running')
+
+    resolveStart(makeSnapshot('official', 'starting', { pid: 9, startedAt: 456 }))
+    await pending
+    expect(store.snapshots.official?.status).toBe('running')
+    expect(mocks.messageSuccess).toHaveBeenCalledTimes(1)
+  })
+
   it('start 失败回滚到操作前快照并提示后端 message', async () => {
     const store = await loadStore()
     mocks.startInstance.mockRejectedValue(new AdminApiError('端口 3000 已被占用', 1))

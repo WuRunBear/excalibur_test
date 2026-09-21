@@ -120,6 +120,9 @@ export const useInstanceStore = defineStore('admin-instance', () => {
     return p.start || p.stop || p.restart
   }
 
+  /** WS 状态推送修订号：每落地一条 instance:state 递增，用于识别 REST 请求在途期间的更新。 */
+  const wsRevision: Record<InstanceRole, number> = { official: 0, preview: 0 }
+
   /**
    * 执行实例操作：乐观状态 + 失败回滚。
    * - start / restart：立即呈现「启动中」；
@@ -136,6 +139,8 @@ export const useInstanceStore = defineStore('admin-instance', () => {
       snapshots.value[role] = { ...prev, status: 'starting' }
     }
 
+    const revisionBefore = wsRevision[role]
+
     const request =
       action === 'start'
         ? startInstance(role)
@@ -145,11 +150,19 @@ export const useInstanceStore = defineStore('admin-instance', () => {
 
     try {
       const snapshot = await request
-      snapshots.value[role] = snapshot
+      // 在途期间若有 WS 推送落地，说明 store 已收到更新鲜的状态（REST 响应的快照
+      // 生成早于其上，如 start 的 starting 响应晚于 running 推送到达）——丢弃本次
+      // 响应快照，避免陈旧数据把「运行中」回退成「启动中」。
+      if (wsRevision[role] === revisionBefore) {
+        snapshots.value[role] = snapshot
+      }
       ElMessage.success(actionSuccessMessage(role, action))
     } catch (err) {
       // 失败回滚：恢复操作前快照，并提示后端返回的 message。
-      snapshots.value[role] = prev
+      // 若在途期间 WS 已推送更新状态（如启动后瞬间崩溃的 crashed 广播），以 WS 为准、不回退。
+      if (wsRevision[role] === revisionBefore) {
+        snapshots.value[role] = prev
+      }
       ElMessage.error(err instanceof AdminApiError ? err.message : '操作失败，请稍后重试')
     } finally {
       pending.value[role][action] = false
@@ -178,6 +191,7 @@ export const useInstanceStore = defineStore('admin-instance', () => {
     socketHandle = subscribeAdminChannel('instance:state', {
       onMessage: (payload) => {
         if (!isInstanceSnapshot(payload)) return
+        wsRevision[payload.role] += 1
         snapshots.value[payload.role] = payload
       },
       onOpen: () => {
