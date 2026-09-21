@@ -70,11 +70,14 @@ export class MyGame extends Engine {
   private inputCooldownMs = 0
   private facing: Facing = '下'
   private selectedSlot: number | undefined
+  /** 观察目标地址覆盖（undefined → official 默认端点，行为与历史版本一致）。 */
+  private readonly serverUrl: string | undefined
 
   /**
    * @param canvasElement 承载 Excalibur 渲染的 canvas
+   * @param serverUrl 可选连接地址覆盖（观察视图按实例目标传入 resolveServerUrl(target)）
    */
-  constructor(canvasElement: HTMLCanvasElement) {
+  constructor(canvasElement: HTMLCanvasElement, serverUrl?: string) {
     super({
       width: config.width,
       height: config.height,
@@ -84,6 +87,7 @@ export class MyGame extends Engine {
     })
 
     this.canvasElement = canvasElement
+    this.serverUrl = serverUrl
     this.state = this.createInitialState()
 
     this.bridgeInternal = createGameBridge({
@@ -216,9 +220,10 @@ export class MyGame extends Engine {
   private async connectToServer() {
     if (this.connectionStatus === 'connecting' || this.connectionStatus === 'connected') return
     this.connectionStatus = 'connecting'
+    this.bridgeInternal.emitConnectionStatus('connecting')
 
     try {
-      const room = await this.connection.connect()
+      const room = await this.connection.connect(this.serverUrl)
       const mapId = room.state.players.get(room.sessionId)?.mapId ?? ''
       const runtime = await this.connection.fetchMapRuntime(mapId)
       this.applyMapRuntime(runtime, mapId)
@@ -232,6 +237,7 @@ export class MyGame extends Engine {
         this.handleRoomStateChange(state, room.sessionId)
       })
       this.connectionStatus = 'connected'
+      this.bridgeInternal.emitConnectionStatus('connected')
       this.bridgeInternal.emitMessage('已连接到服务器')
 
       room.onLeave(() => {
@@ -244,6 +250,25 @@ export class MyGame extends Engine {
     } catch {
       this.handleDisconnected('连接失败')
     }
+  }
+
+  /**
+   * 观察页「重连」：主动离开当前房间后按同一目标地址重新连接。
+   *
+   * 说明：
+   * - 仅在 disconnected / 尚未连接状态下生效，避免与连接中状态打架
+   * - disconnect 清空 roomInternal 后，connect 复用同一 client 重新 joinOrCreate
+   * - 地图与实体层由 handleDisconnected / connectToServer 负责清理与重建
+   */
+  private async reconnectToServer() {
+    if (this.connectionStatus === 'connected' || this.connectionStatus === 'connecting') return
+    try {
+      await this.connection.disconnect()
+    } catch {
+      // 房间可能已失效，忽略离开异常
+    }
+    this.connectionStatus = 'idle'
+    await this.connectToServer()
   }
 
   /**
@@ -381,6 +406,7 @@ export class MyGame extends Engine {
    */
   private handleDisconnected(message: string) {
     this.connectionStatus = 'disconnected'
+    this.bridgeInternal.emitConnectionStatus('disconnected')
     this.localEntityId = undefined
     this.unsubscribeCollisionDebugSnapshots?.()
     this.unsubscribeCollisionDebugSnapshots = undefined
@@ -719,10 +745,10 @@ export class MyGame extends Engine {
     let dx = 0
     let dy = 0
 
-    if (keyboard.isHeld(Keys.W)) dy -= 1
-    if (keyboard.isHeld(Keys.S)) dy += 1
-    if (keyboard.isHeld(Keys.A)) dx -= 1
-    if (keyboard.isHeld(Keys.D)) dx += 1
+    if (keyboard.isHeld(Keys.W) || keyboard.isHeld(Keys.Up)) dy -= 1
+    if (keyboard.isHeld(Keys.S) || keyboard.isHeld(Keys.Down)) dy += 1
+    if (keyboard.isHeld(Keys.A) || keyboard.isHeld(Keys.Left)) dx -= 1
+    if (keyboard.isHeld(Keys.D) || keyboard.isHeld(Keys.Right)) dx += 1
 
     if (dx !== 0 || dy !== 0) {
       if (Math.abs(dx) > Math.abs(dy)) this.facing = dx > 0 ? '右' : '左'
@@ -845,6 +871,14 @@ export class MyGame extends Engine {
 
     if (command.type === 'reset') {
       this.bridgeInternal.emitMessage('服务端未提供重置能力')
+      return
+    }
+
+    if (command.type === 'reconnect') {
+      if (this.connectionStatus === 'disconnected' || this.connectionStatus === 'idle') {
+        this.bridgeInternal.emitMessage('正在重新连接…')
+      }
+      void this.reconnectToServer()
       return
     }
 
@@ -986,11 +1020,15 @@ let controller: GameController | undefined
  * 初始化游戏并返回控制器（供页面持有并在卸载时 destroy）。
  *
  * @param gameCanvas 承载游戏渲染的 canvas 元素
+ * @param options 可选参数：serverUrl 覆盖连接地址（观察视图按实例目标传入）
  * @returns GameController（包含 bridge 与 destroy）
  */
-export async function initGame(gameCanvas: HTMLCanvasElement): Promise<GameController> {
+export async function initGame(
+  gameCanvas: HTMLCanvasElement,
+  options?: { serverUrl?: string },
+): Promise<GameController> {
   controller?.destroy()
-  game = new MyGame(gameCanvas)
+  game = new MyGame(gameCanvas, options?.serverUrl)
   await game.startAndLoad()
   await game.goToScene('main')
 

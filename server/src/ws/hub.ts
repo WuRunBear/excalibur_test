@@ -18,6 +18,8 @@ export const WS_CHANNELS = [
   'instance:state',
   'instance:log:official',
   'instance:log:preview',
+  'live:official',
+  'live:preview',
 ] as const
 
 export type WsChannel = (typeof WS_CHANNELS)[number]

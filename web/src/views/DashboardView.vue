@@ -146,6 +146,9 @@
     <!-- S3-B：配置上下文（本体 vs 活动工作区一致性） -->
     <ConfigContextCard />
 
+    <!-- S7-B：运行趋势（每秒采样的 tick 速率 / 实体总数时序图） -->
+    <LiveTrendPanel />
+
     <section class="dash-grid">
       <LogConsole role="official" />
       <LogConsole role="preview" />
@@ -159,6 +162,7 @@ defineOptions({ name: 'DashboardView' })
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import ConfigContextCard from 'components/admin/ConfigContextCard.vue'
+import LiveTrendPanel from 'components/admin/LiveTrendPanel.vue'
 import LogConsole from 'components/admin/LogConsole.vue'
 import { INSTANCE_ROLE_LABELS, INSTANCE_STATUS_TEXT } from '@/api/admin'
 import type { InstanceRole, InstanceSnapshot, InstanceStatus } from '@/api/admin'

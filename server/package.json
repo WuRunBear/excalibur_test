@@ -3,13 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.12.0" },
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "check": "tsc --noEmit -p tsconfig.json",
     "check:all": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@colyseus/sdk": "^0.17.42",
     "bitecs": "^0.4.0",
     "check2d": "^9.36.4",
     "diff": "^8.0.0",

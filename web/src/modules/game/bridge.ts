@@ -1,4 +1,11 @@
-import type { GameBridge, GameCommand, GameUIEvent, GameUIState, Unsubscribe } from './type'
+import type {
+  GameBridge,
+  GameCommand,
+  GameConnectionStatus,
+  GameUIEvent,
+  GameUIState,
+  Unsubscribe,
+} from './type'
 
 /**
  * 创建 UI ↔ 游戏 的桥接层实现（纯 TS，不依赖 Vue/Pinia）。
@@ -9,13 +16,15 @@ import type { GameBridge, GameCommand, GameUIEvent, GameUIState, Unsubscribe } f
  *
  * @param options.initialState 初始化状态；subscribe 后会立即推送一次该状态
  * @param options.onCommand 指令回调；由游戏侧实现具体响应逻辑
- * @returns bridge：给 UI 使用的协议对象；setState/emitMessage：给游戏侧使用的状态与消息推送方法
+ * @returns bridge：给 UI 使用的协议对象；setState/emitMessage 等：给游戏侧使用的状态与消息推送方法
  */
 export function createGameBridge(options: {
   initialState: GameUIState
   onCommand: (command: GameCommand) => void
 }) {
   let state = options.initialState
+  /** 最近一次连接状态（subscribe 时随 state 一起推送，避免订阅方错过初始状态）。 */
+  let connectionStatus: GameConnectionStatus = 'idle'
   const listeners = new Set<(event: GameUIEvent) => void>()
 
   function emit(event: GameUIEvent) {
@@ -29,6 +38,7 @@ export function createGameBridge(options: {
     subscribe(listener) {
       listeners.add(listener)
       listener({ type: 'state', state })
+      listener({ type: 'connection', status: connectionStatus })
       const unsubscribe: Unsubscribe = () => listeners.delete(listener)
       return unsubscribe
     },
@@ -53,11 +63,19 @@ export function createGameBridge(options: {
   }
 
   /**
+   * 由游戏侧调用，用于推送连接状态变化。
+   */
+  function emitConnectionStatus(status: GameConnectionStatus) {
+    connectionStatus = status
+    emit({ type: 'connection', status })
+  }
+
+  /**
    * 销毁桥接层：清理全部订阅者，避免页面卸载后泄漏。
    */
   function destroy() {
     listeners.clear()
   }
 
-  return { bridge, setState, emitMessage, destroy }
+  return { bridge, setState, emitMessage, emitConnectionStatus, destroy }
 }

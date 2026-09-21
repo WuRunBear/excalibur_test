@@ -21,12 +21,14 @@ import { ADMIN_PORT, GAME_ROOT, corsOrigins } from './config.js'
 import { applyRouter, backupsRouter } from './routes/apply.js'
 import { configContextRouter } from './routes/configContext.js'
 import { configsRouter } from './routes/configs.js'
+import { liveRouter } from './routes/live.js'
 import { mapsRouter } from './routes/maps.js'
 import { processRouter } from './routes/process.js'
 import { registriesRouter } from './routes/registries.js'
 import { savesRouter } from './routes/saves.js'
 import { workspaceRouter } from './routes/workspace.js'
 import { instanceManagers } from './services/instanceManager.js'
+import { liveState } from './services/liveState.js'
 import { logStream } from './services/logStream.js'
 import type { WsChannel } from './ws/hub.js'
 import { wsHub } from './ws/hub.js'
@@ -65,6 +67,7 @@ app.use('/api/backups', backupsRouter)
 app.use('/api/maps', mapsRouter)
 app.use('/api/saves', savesRouter)
 app.use('/api/registries', registriesRouter)
+app.use('/api/live', liveRouter)
 
 // API 404（统一响应结构）
 app.use((req, res) => {
@@ -83,11 +86,13 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 })
 
 // ---------------------------------------------------------------------------
-// 事件接线（进程管理 ↔ 日志流 ↔ WS 广播）
+// 事件接线（进程管理 ↔ 日志流 ↔ WS 广播 ↔ liveState 观察）
 // ---------------------------------------------------------------------------
 for (const manager of Object.values(instanceManagers)) {
   manager.onStateChange((snapshot) => {
     wsHub.broadcast('instance:state', snapshot)
+    // S7-A：liveState 旁路观察者——running 建观察会话，其余状态拆除
+    liveState.handleInstanceStatus(snapshot.role, snapshot)
   })
   manager.onLine((role, source, line) => {
     logStream.ingestProcessLine(role, source, line)
@@ -121,6 +126,7 @@ server.listen(ADMIN_PORT, () => {
 // 优雅退出：只关管理后端自身（游戏实例生命周期独立，交由 REST stop 管理）。
 function shutdown(signal: string): void {
   console.log(`[admin] received ${signal}, shutting down`)
+  liveState.stopAll()
   logStream.stop()
   wsHub.stop()
   server.close(() => process.exit(0))

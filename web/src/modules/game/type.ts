@@ -3,6 +3,9 @@
  */
 export type Facing = '上' | '下' | '左' | '右'
 
+/** 与 net 层连接状态机对齐（idle / connecting / connected / disconnected）。 */
+export type GameConnectionStatus = 'idle' | 'connecting' | 'connected' | 'disconnected'
+
 /**
  * 玩家在某一帧的快照。
  * - 用于从游戏域向 UI 域同步“可序列化”的玩家状态
@@ -117,6 +120,7 @@ export interface GameUIState {
  * 游戏向 UI 派发的事件。
  * - state：状态刷新（订阅后会立即收到一次）
  * - message：短消息提示（例如战斗提示、系统提示等）
+ * - connection：连接状态变化（订阅后立即推送一次当前状态，供观察页指示灯使用）
  */
 export type GameUIEvent =
   | {
@@ -126,6 +130,10 @@ export type GameUIEvent =
   | {
       type: 'message'
       text: string
+    }
+  | {
+      type: 'connection'
+      status: GameConnectionStatus
     }
 
 /**
@@ -137,6 +145,8 @@ export type GameCommand =
   | { type: 'togglePause' }
   | { type: 'setPaused'; value: boolean }
   | { type: 'reset' }
+  /** 观察页「重连」：断开当前房间后按同一目标地址重新连接。 */
+  | { type: 'reconnect' }
   | {
       type: 'setDebugOptions'
       value: Partial<

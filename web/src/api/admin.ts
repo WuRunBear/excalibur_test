@@ -49,7 +49,12 @@ export interface LogMessage {
 }
 
 /** WS 频道白名单（镜像 server/src/ws/hub.ts 的 WS_CHANNELS）。 */
-export type AdminChannel = 'instance:state' | 'instance:log:official' | 'instance:log:preview'
+export type AdminChannel =
+  | 'instance:state'
+  | 'instance:log:official'
+  | 'instance:log:preview'
+  | 'live:official'
+  | 'live:preview'
 
 /** 统一响应结构。 */
 interface AdminEnvelope<T> {
@@ -615,6 +620,49 @@ export interface RegistriesPayload {
 
 export function fetchRegistries(): Promise<RegistriesPayload> {
   return request('/api/registries')
+}
+
+// ---------------------------------------------------------------------------
+// 游戏观察（S7-B：liveState 观察服务契约）
+// ---------------------------------------------------------------------------
+
+/** 单条运行采样（WS live:{role} 每秒一条；REST 回填同构）。 */
+export interface LiveSample {
+  /** 采样时间（epoch ms） */
+  ts: number
+  /** 服务端 tick 序号 */
+  tick: number
+  /** 每秒采样数（≈服务端 tick 速率，正常在 20 附近） */
+  tickRate: number
+  /** 实体总数 */
+  entityCount: number
+}
+
+/** GET /api/live/samples 响应：samples 旧→新，环形缓冲最多 300 条。 */
+export interface LiveSamplesPayload {
+  role: InstanceRole
+  samples: LiveSample[]
+}
+
+/** GET /api/live/samples?role=&limit= → 指定角色的最近采样回填。 */
+export function fetchLiveSamples(role: InstanceRole, limit = 120): Promise<LiveSamplesPayload> {
+  return request<LiveSamplesPayload>(`/api/live/samples?role=${role}&limit=${limit}`)
+}
+
+/** WS live:{role} 单条消息负载（每秒一条）。 */
+export type LiveSampleMessage = LiveSample & { role: InstanceRole }
+
+/** 校验 WS live 消息形状（字段缺失 / 类型不符时丢弃，不进缓冲）。 */
+export function isLiveSampleMessage(value: unknown): value is LiveSampleMessage {
+  if (typeof value !== 'object' || value === null) return false
+  const v = value as Record<string, unknown>
+  return (
+    (v.role === 'official' || v.role === 'preview') &&
+    typeof v.ts === 'number' &&
+    typeof v.tick === 'number' &&
+    typeof v.tickRate === 'number' &&
+    typeof v.entityCount === 'number'
+  )
 }
 
 export interface AdminChannelHandlers {

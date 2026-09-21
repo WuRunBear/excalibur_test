@@ -189,6 +189,29 @@ export interface RegistriesPayload {
 }
 
 // ---------------------------------------------------------------------------
+// S7-A：liveState 观察（运行指标采样）
+// ---------------------------------------------------------------------------
+
+/** 单个运行指标样本（每 1000ms 一次；WS live:{role} 推送与回填同结构）。 */
+export interface LiveSample {
+  role: InstanceRole
+  /** 采样时间戳（epoch ms） */
+  ts: number
+  /** 房间状态 tick（uint32） */
+  tick: number
+  /** tick 增量速率（tick/s，3 次滑动平均平滑；首样本 0） */
+  tickRate: number
+  /** 观察者 PlayerState.visibleEntities.size（兴趣裁剪后的可见实体数） */
+  entityCount: number
+}
+
+/** GET /api/live/samples 响应 detail（samples 旧→新）。 */
+export interface LiveSamplesPayload {
+  role: InstanceRole
+  samples: LiveSample[]
+}
+
+// ---------------------------------------------------------------------------
 // S3-A：配置上下文（本体 vs 工作区 同步状态）
 // ---------------------------------------------------------------------------
 

@@ -65,6 +65,19 @@ function resolveHttpBaseUrl(wsEndpoint: string): string {
 }
 
 /**
+ * 由任意 ws/wss 端点派生 HTTP 基础地址（公开版本）。
+ *
+ * 用途：观察视图按实例目标切换连接地址后，地图等 HTTP 资源
+ * 需要从同一实例拉取（而不是固定 official 的 HTTP 基址）。
+ *
+ * @param wsEndpoint WebSocket 端点
+ * @returns HTTP 基础地址
+ */
+export function resolveHttpBaseUrlFromWs(wsEndpoint: string): string {
+  return resolveHttpBaseUrl(wsEndpoint)
+}
+
+/**
  * Colyseus 服务端连接地址（official 实例，模块加载时解析一次）。
  */
 export const gameServerUrl = resolveServerUrl('official')

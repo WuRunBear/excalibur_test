@@ -26,6 +26,7 @@
     "@excaliburjs/plugin-tiled": "^0.32.0",
     "@pixelium/web-vue": "^0.1.4",
     "@tailwindcss/vite": "^4.2.4",
+    "echarts": "^6.1.0",
     "element-plus": "^2.14.6",
     "excalibur": "^0.32.0",
     "monaco-editor": "^0.56.0",

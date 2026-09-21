@@ -1,6 +1,6 @@
 import { Client, type Room } from '@colyseus/sdk'
 
-import { gameServerHttpBaseUrl, resolveServerUrl } from './config'
+import { resolveHttpBaseUrlFromWs, resolveServerUrl } from './config'
 import { reassembleBlocked } from 'maprender/mapCodec'
 import type {
   CollisionDebugSnapshot,
@@ -27,6 +27,10 @@ export class GameConnection {
    * 当前加入的房间引用（只允许单房间）。
    */
   private roomInternal: Room<RoomState> | undefined
+  /**
+   * 首次 connect 实际使用的端点（地图等 HTTP 资源从同一实例拉取）。
+   */
+  private endpointInternal = resolveServerUrl('official')
 
   /**
    * 获取当前房间对象。
@@ -38,6 +42,13 @@ export class GameConnection {
   }
 
   /**
+   * 获取连接使用的 WebSocket 端点。
+   */
+  get endpoint(): string {
+    return this.endpointInternal
+  }
+
+  /**
    * 连接服务器并加入房间。
    *
    * 说明：
@@ -45,13 +56,15 @@ export class GameConnection {
    * - 客户端首次 connect 时创建，后续调用复用同一地址
    *
    * @param urlOverride 可选连接地址覆盖；默认 undefined → official 实例地址
-   *   （resolveServerUrl('official')，行为与现状一致），预览实例切换由后续 UI 车道接入
+   *   （resolveServerUrl('official')）。观察视图切换实例目标时传入
+   *   resolveServerUrl(target)，地图等 HTTP 资源随之从同一实例拉取
    * @returns 成功加入后的房间对象
    */
   async connect(urlOverride?: string): Promise<Room<RoomState>> {
     if (this.roomInternal) return this.roomInternal
     if (!this.clientInternal) {
-      this.clientInternal = new Client(urlOverride ?? resolveServerUrl('official'))
+      this.endpointInternal = urlOverride ?? resolveServerUrl('official')
+      this.clientInternal = new Client(this.endpointInternal)
     }
     const room = await this.clientInternal.joinOrCreate<RoomState>('game')
     this.roomInternal = room
@@ -140,9 +153,10 @@ export class GameConnection {
    * @returns 地图运行时数据（blocked 为扁平 Uint8Array）
    */
   async fetchMapRuntime(mapId?: string): Promise<MapRuntime> {
+    const httpBase = resolveHttpBaseUrlFromWs(this.endpointInternal)
     const url = mapId
-      ? `${gameServerHttpBaseUrl}/maps/runtime?mapId=${encodeURIComponent(mapId)}`
-      : `${gameServerHttpBaseUrl}/maps/runtime`
+      ? `${httpBase}/maps/runtime?mapId=${encodeURIComponent(mapId)}`
+      : `${httpBase}/maps/runtime`
     const resp = await fetch(url)
     if (!resp.ok) throw new Error(`fetch map runtime failed: ${resp.status}`)
     const json = (await resp.json()) as MapRuntimeResponse
@@ -175,7 +189,7 @@ export class GameConnection {
    * @returns 碰撞调试快照
    */
   async fetchCollisionDebugSnapshot(): Promise<CollisionDebugSnapshot> {
-    const resp = await fetch(`${gameServerHttpBaseUrl}/debug/colliders`)
+    const resp = await fetch(`${resolveHttpBaseUrlFromWs(this.endpointInternal)}/debug/colliders`)
     if (!resp.ok) throw new Error(`fetch collision debug snapshot failed: ${resp.status}`)
     return (await resp.json()) as CollisionDebugSnapshot
   }

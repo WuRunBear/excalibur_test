@@ -232,7 +232,7 @@ function toggleCraft() {
 }
 
 function applyGameEvent(event: GameUIEvent) {
-  if (event.type === 'message') return
+  if (event.type !== 'state') return
 
   const state = event.state
   hp.value = state.stats.hp
