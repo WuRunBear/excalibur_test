@@ -13,6 +13,11 @@ import router from './router'
 import '@pixelium/web-vue/dist/font.css'
 import '@pixelium/web-vue/dist/normalize.css'
 
+// 环境兼容垫片：详见 utils/envCompat.ts 头注释（decode() 挂起 / rAF 停发两处兜底）
+import { installHybridRaf, installImageDecodeShim } from './utils/envCompat'
+installImageDecodeShim()
+installHybridRaf()
+
 const app = createApp(App)
 
 app.use(createPinia())

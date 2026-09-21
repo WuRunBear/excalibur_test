@@ -139,7 +139,7 @@ import { appInfo } from '@/config/app'
 import type { MenuGroupOption, MenuOption, SubmenuOption } from '@pixelium/web-vue/es'
 import type { RouteRecordRaw } from 'vue-router'
 import type { Component } from 'vue'
-import { computed, h, ref, shallowRef, watch } from 'vue'
+import { computed, h, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router'
 import {
   Aside,
@@ -188,7 +188,28 @@ const route = useRoute()
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
-const isSidebarCollapsed = ref(false)
+/** 移动端（<768px）固定折叠成 64px 图标栏：256px 侧栏会把内容挤到视口外（横向溢出）。 */
+const MOBILE_QUERY = '(max-width: 767px)'
+
+const isMobileViewport = ref(
+  typeof window !== 'undefined' && window.matchMedia(MOBILE_QUERY).matches,
+)
+
+if (typeof window !== 'undefined') {
+  const mediaList = window.matchMedia(MOBILE_QUERY)
+  const onViewportChange = (event: MediaQueryListEvent): void => {
+    isMobileViewport.value = event.matches
+  }
+  mediaList.addEventListener('change', onViewportChange)
+  onBeforeUnmount(() => {
+    mediaList.removeEventListener('change', onViewportChange)
+  })
+}
+
+/** 用户自己的折叠偏好（仅桌面视口生效；移动端由视口宽度强制折叠）。 */
+const userCollapsed = ref(false)
+
+const isSidebarCollapsed = computed(() => isMobileViewport.value || userCollapsed.value)
 
 /**
  * 安全读取路由 meta，并在当前文件内统一收口类型转换
@@ -216,10 +237,10 @@ function readSidebarCollapsedFromStorage() {
   return raw === 'true'
 }
 
-isSidebarCollapsed.value = readSidebarCollapsedFromStorage()
+userCollapsed.value = readSidebarCollapsedFromStorage()
 
 watch(
-  isSidebarCollapsed,
+  userCollapsed,
   (value) => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, value ? 'true' : 'false')
   },
@@ -227,7 +248,7 @@ watch(
 )
 
 function toggleSidebarCollapsed() {
-  isSidebarCollapsed.value = !isSidebarCollapsed.value
+  userCollapsed.value = !userCollapsed.value
 }
 
 /**

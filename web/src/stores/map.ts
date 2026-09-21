@@ -49,9 +49,10 @@ export const useMapStore = defineStore('admin-map', () => {
     }
   }
 
-  /** 首次进入加载（幂等）。 */
+  /** 首次进入加载（幂等）；清单已加载但来源与当前数据源不一致时按新来源重拉。 */
   async function ensureMapsLoaded(): Promise<void> {
-    if (!mapsLoadedFor.value && !mapsLoading.value) await loadMaps()
+    if (mapsLoading.value) return
+    if (!mapsLoadedFor.value || mapsLoadedFor.value !== source.value) await loadMaps()
   }
 
   async function loadRules(target: MapSource): Promise<void> {

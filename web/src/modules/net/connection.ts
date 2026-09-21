@@ -1,7 +1,6 @@
 import { Client, type Room } from '@colyseus/sdk'
 
 import { resolveHttpBaseUrlFromWs, resolveServerUrl } from './config'
-import { reassembleBlocked } from 'maprender/mapCodec'
 import type {
   CollisionDebugSnapshot,
   CommandPayload,
@@ -9,7 +8,8 @@ import type {
   MapRuntime,
   MapRuntimeResponse,
 } from './types'
-import type { RoomState } from './schema'
+// RoomState 以「值」引入：joinOrCreate 需要类本身作为 rootSchema（仅 type 引入会在运行时 undefined）
+import { RoomState } from './schema'
 
 /**
  * Colyseus 连接封装：负责创建客户端、加入单房间、发送输入消息。
@@ -66,7 +66,10 @@ export class GameConnection {
       this.endpointInternal = urlOverride ?? resolveServerUrl('official')
       this.clientInternal = new Client(this.endpointInternal)
     }
-    const room = await this.clientInternal.joinOrCreate<RoomState>('game')
+    // rootSchema 必须显式传入（SDK 的第三个参数）：缺省时 SDK 用 Reflection 反射态
+    // 初始化 serializer，room.state.players 不是 MapSchema（无 .get），join 一返回
+    // 读 state 即抛 TypeError——服务端 join 全绿、客户端却落 handleDisconnected 的根因。
+    const room = await this.clientInternal.joinOrCreate<RoomState>('game', {}, RoomState)
     this.roomInternal = room
     return room
   }
@@ -144,13 +147,13 @@ export class GameConnection {
    *
    * 说明：
    * - 地图不通过 Colyseus state 同步，改为 HTTP 拉取一次
-   * - 响应新契约：{id, name, grid, version, chunks}，chunks 按 16×16 瓦片分块、
-   *   每块 base64 编码，客户端按行主序重组为扁平 blocked
-   * - 响应形状不符（缺 chunks/version 字段、分块数量或字节数不匹配）时显式抛错，
+   * - 响应契约 = 服务端 SerializedMapGeometry：{key, grid, tiles, walkable,
+   *   regions, regionOfTile, version}；客户端把 walkable 位图取反为 blocked
+   * - 响应形状不符（缺 key/grid/walkable/version、walkable 长度不符）时显式抛错，
    *   绝不静默错配
    *
-   * @param mapId 可选地图 id；提供时作为 ?mapId 查询参数传给服务端
-   * @returns 地图运行时数据（blocked 为扁平 Uint8Array）
+   * @param mapId 可选地图 id（= 服务端地图 key）；提供时作为 ?mapId 查询参数传给服务端
+   * @returns 地图运行时数据（blocked 为扁平 Uint8Array，1=阻挡）
    */
   async fetchMapRuntime(mapId?: string): Promise<MapRuntime> {
     const httpBase = resolveHttpBaseUrlFromWs(this.endpointInternal)
@@ -161,25 +164,40 @@ export class GameConnection {
     if (!resp.ok) throw new Error(`fetch map runtime failed: ${resp.status}`)
     const json = (await resp.json()) as MapRuntimeResponse
 
-    if (typeof json.id !== 'string' || typeof json.name !== 'string') {
-      throw new Error('地图运行时响应缺少 id/name 字段')
+    if (typeof json.key !== 'string' || json.key === '') {
+      throw new Error('地图运行时响应缺少 key 字段')
     }
-    if (!json.grid || typeof json.grid.width !== 'number' || typeof json.grid.height !== 'number') {
+    if (
+      !json.grid ||
+      typeof json.grid.width !== 'number' ||
+      typeof json.grid.height !== 'number' ||
+      typeof json.grid.tileWidth !== 'number' ||
+      typeof json.grid.tileHeight !== 'number'
+    ) {
       throw new Error('地图运行时响应缺少 grid 字段')
     }
     if (typeof json.version !== 'string') {
       throw new Error('地图运行时响应缺少 version 字段')
     }
-    if (!Array.isArray(json.chunks)) {
-      throw new Error('地图运行时响应缺少 chunks 字段')
+    if (!Array.isArray(json.walkable)) {
+      throw new Error('地图运行时响应缺少 walkable 字段')
     }
 
+    const size = json.grid.width * json.grid.height
+    if (json.walkable.length !== size) {
+      throw new Error(`地图 walkable 长度不符：期望 ${size}，实际 ${json.walkable.length}`)
+    }
+
+    // 服务端 walkable（0=阻挡，非 0=可走）→ 客户端 blocked（1=阻挡，行主序）
+    const blocked = new Uint8Array(size)
+    for (let i = 0; i < size; i++) blocked[i] = json.walkable[i] ? 0 : 1
+
     return {
-      id: json.id,
-      name: json.name,
+      id: json.key,
+      name: json.key,
       grid: json.grid,
       version: json.version,
-      blocked: reassembleBlocked(json.chunks, json.grid),
+      blocked,
     }
   }
 

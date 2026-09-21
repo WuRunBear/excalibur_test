@@ -250,23 +250,31 @@ export interface MapRuntimeGrid {
 /**
  * 服务端地图运行时接口响应（GET /maps/runtime）。
  *
- * 说明：
- * - blocked 阻挡数据按 16×16 瓦片分块传输，每块 base64 编码（见 mapCodec.ts）
- * - version 为地图内容哈希，用于客户端缓存失效判断
+ * 实际契约 = 服务端 SerializedMapGeometry（framework/map/geometry/snapshot.ts）：
+ * { key, grid, tiles, walkable, regions, regionOfTile, version }。
+ * 客户端渲染只消费 grid/walkable/version（walkable → blocked 位图）。
  */
 export interface MapRuntimeResponse {
-  id: string
-  name: string
+  /** 地图 key（即 RoomState.PlayerState.mapId 的取值域）。 */
+  key: string
   grid: MapRuntimeGrid
+  /** 每格地面语义 id（客户端未消费，仅透传）。 */
+  tiles: number[]
+  /** 每格通行位图（0=阻挡，非 0=可走）。 */
+  walkable: number[]
+  /** 区域名 → 区域元信息（客户端未消费）。 */
+  regions?: Record<string, Record<string, unknown>>
+  /** 每格所属区域索引（客户端未消费）。 */
+  regionOfTile?: number[]
+  /** 内容指纹（客户端缓存键的一部分）。 */
   version: string
-  chunks: Array<{ cx: number; cy: number; data: string }>
 }
 
 /**
  * 客户端解码后的地图运行时数据。
  *
  * 说明：
- * - blocked 为行主序扁平 Uint8Array（长度 = width * height），由 chunks 重组而来
+ * - blocked 为行主序扁平 Uint8Array（长度 = width * height），由响应的 walkable 位图取反得到
  */
 export interface MapRuntime {
   id: string

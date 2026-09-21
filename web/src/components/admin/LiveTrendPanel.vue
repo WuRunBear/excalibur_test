@@ -39,7 +39,7 @@
         </div>
         <div class="trend__plot">
           <div
-            :ref="panel.plotEl"
+            :ref="panel.setPlotEl"
             class="trend__canvas"
           ></div>
 
@@ -77,7 +77,7 @@ import {
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { ECharts, EChartsCoreOption } from 'echarts/core'
-import type { Ref } from 'vue'
+import type { ComponentPublicInstance, Ref } from 'vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { INSTANCE_ROLE_LABELS } from '@/api/admin'
@@ -133,11 +133,20 @@ interface PanelSpec {
   baseline: number | null
   area: boolean
   plotEl: Ref<HTMLDivElement | null>
+  /** 稳定的函数 ref：v-for 中必须用函数 ref（对象 ref 会被 Vue 3.5 的 setRef 收集成数组）。 */
+  setPlotEl: (el: Element | ComponentPublicInstance | null) => void
   chart: ECharts | null
 }
 
 const tickPlotEl = ref<HTMLDivElement | null>(null)
 const entityPlotEl = ref<HTMLDivElement | null>(null)
+
+/** 把模板函数 ref 收到的元素写入 panel.plotEl（卸载时收到 null）。 */
+function makePlotRefSetter(panel: PanelSpec): PanelSpec['setPlotEl'] {
+  return (el) => {
+    panel.plotEl.value = el instanceof HTMLDivElement ? el : null
+  }
+}
 
 const panels: PanelSpec[] = [
   {
@@ -148,6 +157,7 @@ const panels: PanelSpec[] = [
     baseline: 20,
     area: false,
     plotEl: tickPlotEl,
+    setPlotEl: null as unknown as PanelSpec['setPlotEl'],
     chart: null,
   },
   {
@@ -158,9 +168,14 @@ const panels: PanelSpec[] = [
     baseline: null,
     area: true,
     plotEl: entityPlotEl,
+    setPlotEl: null as unknown as PanelSpec['setPlotEl'],
     chart: null,
   },
 ]
+
+// 函数 ref 必须是稳定引用：组件因响应式数据重渲染时，换新函数会先以 null 回调旧 ref、
+// 再以元素回调新 ref，导致 plotEl 抖动。panels 为静态数组，这里一次性绑定。
+for (const panel of panels) panel.setPlotEl = makePlotRefSetter(panel)
 
 /** WS 通道聚合状态：任一选中角色断开 → offline；任一未回填 → connecting。 */
 const connTone = computed(() => {
@@ -311,7 +326,12 @@ function hexToRgba(hex: string, alpha: number): string {
 function renderPanels(): void {
   for (const panel of panels) {
     if (!panel.chart) continue
-    panel.chart.setOption(buildOption(panel), { notMerge: false })
+    try {
+      panel.chart.setOption(buildOption(panel), { notMerge: false })
+    } catch (error) {
+      // 单图更新失败只降级该图，不中断采样推送循环
+      console.error(`[LiveTrendPanel] 更新图表失败（${panel.key}）:`, error)
+    }
   }
 }
 
@@ -324,9 +344,15 @@ onMounted(() => {
 
   for (const panel of panels) {
     const el = panel.plotEl.value
-    if (!el) continue
-    panel.chart = echarts.init(el)
-    panel.chart.setOption(buildOption(panel))
+    // 前置校验：v-for ref 未就绪或被收集成数组时绝不把非法值喂给 echarts，
+    // 单图初始化失败也不允许炸掉整个 mounted（会中断 post-flush 队列、连累页面其余加载）。
+    if (!(el instanceof HTMLElement)) continue
+    try {
+      panel.chart = echarts.init(el)
+      panel.chart.setOption(buildOption(panel))
+    } catch (error) {
+      console.error(`[LiveTrendPanel] 初始化图表失败（${panel.key}）:`, error)
+    }
   }
 
   renderPanels()
@@ -335,7 +361,8 @@ onMounted(() => {
     for (const panel of panels) panel.chart?.resize()
   })
   for (const panel of panels) {
-    if (panel.plotEl.value) resizeObserver.observe(panel.plotEl.value)
+    const el = panel.plotEl.value
+    if (el instanceof HTMLElement) resizeObserver.observe(el)
   }
 })
 

@@ -170,6 +170,7 @@
       :title="dialogMode === 'create' ? '新建工作区' : '重命名工作区'"
       width="420px"
       @closed="renameTarget = null"
+      @close="dialogName = ''"
     >
       <el-input
         v-model="dialogName"

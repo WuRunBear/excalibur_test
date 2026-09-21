@@ -295,7 +295,7 @@ defineOptions({ name: 'ConfigView' })
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import monaco from '@/utils/monaco'
 import { INSTANCE_STATUS_TEXT } from '@/api/admin'
@@ -536,8 +536,30 @@ function onValidateCurrent(): void {
 async function onFormat(): Promise<void> {
   const ed = editor
   if (!ed || !canFormat.value) return
-  const action = await ed.getAction('editor.action.formatDocument')
-  await action?.run()
+  const model = ed.getModel()
+  if (!model) return
+  const before = ed.getValue()
+
+  // 优先走 monaco 动作链（JSON worker 格式化）。
+  // 注意：formatDocument 动作带前置条件（editorHasDocumentFormattingProvider 等），
+  // 条件不满足时 run() 会被静默拦截——内容不变、无报错，因此不能只依赖它。
+  const action = ed.getAction('editor.action.formatDocument')
+  if (action) await action.run()
+
+  // 动作不存在或被静默拦截（内容未变）→ 本地 JSON 格式化兜底
+  if (ed.getValue() !== before) return
+  let formatted: string
+  try {
+    formatted = JSON.stringify(JSON.parse(before), null, 2)
+  } catch {
+    // 语法错误时本地无法解析：明确提示（worker 的语法波浪线仍可用）
+    ElMessage.warning('JSON 解析失败，无法格式化（请先修复语法错误）')
+    return
+  }
+  if (formatted === before) return
+  // executeEdits 走编辑器操作栈：内容变更、dirty 生效、Ctrl+Z 可撤销
+  ed.executeEdits('admin-format', [{ range: model.getFullModelRange(), text: formatted }])
+  ed.pushUndoStop()
 }
 
 /** 全局 Ctrl/Cmd+S（焦点不在编辑器时也能保存）。 */

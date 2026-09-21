@@ -8,7 +8,7 @@
       <div class="mp-tools">
         <el-tooltip
           content="工作区未激活，先去工作区页新建或切换"
-          :disabled="workspaceStore.activeId !== null"
+          :disabled="workspaceAvailable"
           placement="top"
         >
           <el-radio-group
@@ -18,7 +18,7 @@
           >
             <el-radio-button
               value="workspace"
-              :disabled="workspaceStore.activeId === null"
+              :disabled="!workspaceAvailable"
             >
               工作区
             </el-radio-button>
@@ -57,7 +57,7 @@
     </header>
 
     <el-alert
-      v-if="workspaceStore.activeId === null"
+      v-if="workspaceStore.loaded && workspaceStore.activeId === null"
       class="mp-alert"
       type="info"
       :closable="false"
@@ -208,6 +208,9 @@ const workspaceStore = useWorkspaceStore()
 
 const compare = ref(false)
 
+/** 「工作区」数据源可用：以真实 fetch 结果为准（列表已加载且存在活动工作区）。 */
+const workspaceAvailable = computed(() => workspaceStore.loaded && workspaceStore.activeId !== null)
+
 const views = computed<Array<{ source: MapSource }>>(() =>
   compare.value ? [{ source: 'workspace' }, { source: 'official' }] : [{ source: mapStore.source }],
 )
@@ -224,14 +227,33 @@ const slots = reactive<Record<MapSource, ViewSlot>>({
 })
 
 onMounted(() => {
-  void mapStore.ensureMapsLoaded()
+  void initSources()
 })
+
+/** 挂载初始化：先初始化工作区 store（告警与「工作区」可用性判断依赖真实 fetch 结果），
+ *  再按实际状态收敛数据源并拉取地图清单。 */
+async function initSources(): Promise<void> {
+  await workspaceStore.ensureLoaded()
+  // 确认未设置活动工作区时才回退本体（未加载前 activeId 恒为 null，不能据此切换）
+  if (workspaceStore.activeId === null && mapStore.source === 'workspace') {
+    mapStore.setSource('official')
+  }
+  await mapStore.ensureMapsLoaded()
+}
 
 // selectedKey / source / compare 变化 → 重新拉取几何（保持“最新生成结果”语义）
 watch(
   () => [mapStore.selectedKey, mapStore.source, compare.value] as const,
   () => {
     void loadViews()
+  },
+)
+
+// 数据源切换 → 地图清单按新来源重拉（否则列表停留在旧来源，与告警「已切换」自相矛盾）
+watch(
+  () => mapStore.source,
+  () => {
+    void mapStore.ensureMapsLoaded()
   },
 )
 

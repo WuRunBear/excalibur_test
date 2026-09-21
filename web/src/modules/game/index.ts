@@ -247,7 +247,14 @@ export class MyGame extends Engine {
       if (this.state.debug.enabled) {
         this.syncDebugSubscription()
       }
-    } catch {
+    } catch (err) {
+      // 连接失败必须透出：console 留全量堆栈，bridge 推给 UI 一行摘要（排查双实例连不上等现场）
+      const summary = err instanceof Error ? `${err.message}` : String(err)
+      const stack = err instanceof Error && err.stack ? `\n${err.stack}` : ''
+      console.error(`[MyGame] 连接服务器失败（${this.connectionStatus}）: ${summary}${stack}`)
+      this.bridgeInternal.emitMessage(
+        `连接失败：${summary.slice(0, 120) || '未知错误（详见浏览器控制台）'}`,
+      )
       this.handleDisconnected('连接失败')
     }
   }

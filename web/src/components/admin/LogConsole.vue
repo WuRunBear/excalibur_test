@@ -342,7 +342,9 @@ onBeforeUnmount(() => {
 }
 
 .log-console__body {
-  flex: 1;
+  /* flex:1 在 auto 高度的网格/弹性父级里会被内容撑开（flex-basis 0 + min-height:auto），
+     导致 200 行回填后整页被日志撑到数万像素——高度一律以 height 内联值为准。 */
+  flex: 0 0 auto;
   overflow-y: auto;
   background: #101a18;
   padding: 10px 12px;
