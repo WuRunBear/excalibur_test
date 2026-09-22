@@ -56,8 +56,16 @@ export default defineConfig(({ mode }) => {
             .split(',')
             .map((v) => v.trim())
             .filter(Boolean)
-  const server =
-    allowedHosts || devHost ? { ...(allowedHosts ? { allowedHosts } : {}), ...(devHost ? { host: devHost } : {}) } : undefined
+  // 管理后端代理：前端同源访问 /api、/ws（REST + WS），由 dev server 转发到 admin 包。
+  const adminProxyTarget = (env.VITE_ADMIN_PROXY_TARGET ?? 'http://localhost:3100').trim()
+  const server = {
+    ...(allowedHosts ? { allowedHosts } : {}),
+    ...(devHost ? { host: devHost } : {}),
+    proxy: {
+      '/api': { target: adminProxyTarget, changeOrigin: true },
+      '/ws': { target: adminProxyTarget, ws: true, changeOrigin: true },
+    },
+  }
   const preview = previewHost
     ? {
         host: previewHost,

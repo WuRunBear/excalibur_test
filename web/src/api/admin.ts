@@ -94,17 +94,23 @@ export class AdminApiError extends Error {
 
 function normalizeBaseUrl(value: string | undefined): string {
   const trimmed = (value ?? '').trim()
-  const base = trimmed || 'http://localhost:3100'
-  return base.replace(/\/+$/, '')
+  // 空 = 同源模式：REST 走相对路径（配合 vite dev proxy 的 /api、/ws 转发），
+  // 页面经域名/反代部署时天然同源、无跨域问题；显式配置绝对地址则直连。
+  return trimmed.replace(/\/+$/, '')
 }
 
-/** 管理后端 REST 基址。 */
+/** 管理后端 REST 基址（空串 = 同源相对路径）。 */
 export const ADMIN_API_BASE = normalizeBaseUrl(
   import.meta.env.VITE_ADMIN_SERVER_URL as string | undefined,
 )
 
-/** WS 基址（由 REST 基址推导：http→ws / https→wss）。 */
-export const ADMIN_WS_BASE = ADMIN_API_BASE.replace(/^http/, 'ws')
+/** WS 基址：显式基址推导（http→ws / https→wss）；同源模式下由页面 location 推导（https 页面自动 wss）。 */
+export const ADMIN_WS_BASE = (() => {
+  if (ADMIN_API_BASE) return ADMIN_API_BASE.replace(/^http/, 'ws')
+  if (typeof window === 'undefined') return 'ws://localhost:3100'
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}`
+})()
 
 /** 统一请求封装：解包统一响应，code ≠ 0 / 网络异常 / 非 JSON 响应均抛 AdminApiError。 */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
