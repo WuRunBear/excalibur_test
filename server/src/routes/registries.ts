@@ -1,40 +1,25 @@
 /**
  * 注册表 REST 路由（S6-A，挂载于 /api/registries）。
  *
- * GET /api/registries → bootstrap 后五类注册表；验收基准 = 本体
- * `pnpm tools list-registries` 输出（数量/条目 id 一致）。
- * components 只取键（值置 null，避免序列化组件定义的巨大输出）；
- * mapGenerators 取条目 id（积木函数不可序列化）。
+ * GET /api/registries → sidecar 透传五类注册表（T1.5：payload 组装——components
+ * 只取键、mapGenerators 取 id 的游戏侧语义裁剪——已移入 driver，路由层不再
+ * import gameBridge）。验收基准沿用 = 本体 `pnpm tools list-registries` 输出
+ * （数量/条目 id 一致）。
  */
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import {
-  bootstrapFramework,
-  listRegisteredActions,
-  listRegisteredArchetypes,
-  listRegisteredComponents,
-  listRegisteredMapGenerators,
-  listRegisteredSystems,
-} from '../../gameBridge/index.js'
-import type { RegistriesPayload } from '../types.js'
+import { sidecar } from '../sidecar/client.js'
+import { sidecarCall } from '../sidecar/errors.js'
 import { handleError, ok } from './helpers.js'
 
 export const registriesRouter = Router()
 
 registriesRouter.get('/', async (_req: Request, res: Response) => {
   try {
-    bootstrapFramework()
-    const payload: RegistriesPayload = {
-      systems: listRegisteredSystems(),
-      archetypes: listRegisteredArchetypes(),
-      actions: listRegisteredActions(),
-      components: Object.fromEntries(
-        Object.keys(listRegisteredComponents()).map((k) => [k, null]),
-      ) as Record<string, null>,
-      mapGenerators: listRegisteredMapGenerators().map((g) => ({ id: g.id })),
-    }
-    ok(res, payload)
+    // payload 组装在 driver（listRegistries）；路由层只透传 + 统一错误映射
+    // （SidecarError → §0.2 REST 状态码，见 sidecar/errors.ts 的 sidecarCall）。
+    ok(res, await sidecarCall(sidecar.listRegistries()))
   } catch (err) {
     handleError(res, err)
   }

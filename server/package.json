@@ -14,14 +14,9 @@
   },
   "dependencies": {
     "@colyseus/sdk": "^0.17.42",
-    "bitecs": "^0.4.0",
-    "check2d": "^9.36.4",
     "diff": "^8.0.0",
     "express": "^5.1.0",
-    "mistreevous": "^4.3.1",
-    "winston": "^3.19.0",
-    "ws": "^8.18.0",
-    "zod": "^4.4.3"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@tsconfig/node22": "^22.0.0",

@@ -3,7 +3,7 @@
  *
  * 流程（execute）：
  *   互斥锁 → 活动工作区 → TOCTOU 复核（重算 changes 校验 path 集合）→
- *   文件级校验 → 整体校验终门（validateWholeConfig，S3 结论：文件级 schema 对
+ *   文件级校验 → 整体校验终门（sidecar validateWhole，S3 结论：文件级 schema 对
  *   ecosystems 跨文件约束无感，必须以整体校验兜底）→
  *   备份 → 写回/删除 → 刷新工作区基线（changes 归零）。
  *
@@ -23,9 +23,10 @@ import path from 'node:path'
 import { createTwoFilesPatch, structuredPatch } from 'diff'
 
 import { backupsDir, gameConfigsDir } from '../config.js'
+import { sidecar } from '../sidecar/client.js'
+import { sidecarCall } from '../sidecar/errors.js'
 import { configService, routeSchemaKind } from './configService.js'
 import { WorkspaceError, workspaceService } from './workspaceService.js'
-import { validateWholeConfig } from '../../gameBridge/index.js'
 import type {
   ApplyExecutePayload,
   ApplyFilePlan,
@@ -184,8 +185,11 @@ export class ApplyService {
       throw new ApplyDetailError(422, '存在未通过校验的文件', { invalid })
     }
 
-    // d. 整体校验终门（S3 结论：文件级 schema 对 ecosystems 等跨文件约束无感）
-    const whole = validateWholeConfig(path.join(gameDir, 'game.json'))
+    // d. 整体校验终门（S3 结论：文件级 schema 对 ecosystems 等跨文件约束无感；
+    //    T1.5 起经 sidecar validateWhole，落盘校验终门语义不变）
+    const whole = await sidecarCall(
+      sidecar.validateWhole({ gameJsonPath: path.join(gameDir, 'game.json') }),
+    )
     if (!whole.ok) {
       throw new ApplyDetailError(422, '整体校验未通过', { message: whole.message })
     }

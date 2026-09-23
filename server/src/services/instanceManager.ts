@@ -16,7 +16,8 @@ import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio, SpawnOptionsWithStdioTuple } from 'node:child_process'
 import type { Readable } from 'node:stream'
 
-import { GAME_ROOT, PREVIEW_PORT, rolePort } from '../config.js'
+import { rolePort } from '../config.js'
+import { defaultGameContext } from '../gameContext.js'
 import type {
   InstanceRole,
   InstanceSnapshot,
@@ -133,11 +134,12 @@ export class InstanceManager {
     //   变量，因此注入值优先于本体 .env。
     const env: NodeJS.ProcessEnv = { ...process.env }
     if (this.role === 'preview') {
-      env.PORT = String(PREVIEW_PORT)
+      // 注入变量名出自 context.envInjection；PORT 值恒为 preview 展示端口。
+      env[defaultGameContext.envInjection.port] = String(defaultGameContext.ports.preview)
       const injection = await workspaceService.getPreviewInjection()
       if (injection) {
-        env.GAME_CONFIG_PATH = injection.configPath
-        env.SAVE_DIR = injection.saveDir
+        env[defaultGameContext.envInjection.configPath] = injection.configPath
+        env[defaultGameContext.envInjection.saveDir] = injection.saveDir
         this.configPath = injection.configPath
         this.saveDir = injection.saveDir
       } else {
@@ -149,7 +151,7 @@ export class InstanceManager {
     }
 
     const spawnOptions: SpawnOptionsWithStdioTuple<'ignore', 'pipe', 'pipe'> = {
-      cwd: GAME_ROOT,
+      cwd: defaultGameContext.gameRoot,
       env,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -162,10 +164,9 @@ export class InstanceManager {
       spawnOptions.detached = true
     }
 
-    const command = IS_WIN ? 'pnpm.cmd' : 'pnpm'
-    const child = IS_WIN
-      ? spawn(command, ['dev'], spawnOptions)
-      : spawn(command, ['dev'], spawnOptions)
+    // 启动命令/参数出自 context.start（win32 的 pnpm → pnpm.cmd 平台适配留在本文件）。
+    const command = IS_WIN ? 'pnpm.cmd' : defaultGameContext.start.command
+    const child = spawn(command, defaultGameContext.start.args, spawnOptions)
 
     this.child = child
     this.stopping = false

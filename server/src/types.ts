@@ -4,7 +4,11 @@
  * 独立成模块以避免 config ↔ services 之间的循环依赖：
  * config 只依赖本文件的类型，services/ 引入 config 与本文件。
  */
-import type { ActionEntry, ArchetypeSpec, SystemSpec } from '../gameBridge/index.js'
+import type {
+  RegistryActionEntry as ActionEntry,
+  RegistryArchetypeSpec as ArchetypeSpec,
+  RegistrySystemSpec as SystemSpec,
+} from './sidecar/protocol.js'
 
 /** 实例角色：正式服 / 预览服。 */
 export type InstanceRole = 'official' | 'preview'

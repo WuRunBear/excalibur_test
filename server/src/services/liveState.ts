@@ -20,6 +20,7 @@
 import { Client } from '@colyseus/sdk'
 import type { Room } from '@colyseus/sdk'
 
+import { defaultGameContext } from '../gameContext.js'
 import type { InstanceRole, InstanceSnapshot, LiveSample } from '../types.js'
 import type { WsChannel } from '../ws/hub.js'
 import { wsHub } from '../ws/hub.js'
@@ -126,8 +127,8 @@ export class LiveStateService {
     if (!this.wanted.get(role)) return
     try {
       const client = new Client(`ws://localhost:${port}`)
-      // schema-less join（动态解码，见文件头说明）
-      const room = (await client.joinOrCreate('game')) as Room<unknown>
+      // schema-less join（动态解码，见文件说明）；房间名出处 = context.roomName
+      const room = (await client.joinOrCreate(defaultGameContext.roomName)) as Room<unknown>
       if (!this.wanted.get(role)) {
         // 等待 join 期间实例已停止：立即退出，不留观察者实体
         await room.leave(true).catch(() => {})
@@ -137,7 +138,7 @@ export class LiveStateService {
       this.backoff.set(role, RECONNECT_INITIAL_MS)
       this.resetRateState(role)
       console.log(
-        `[liveState:${role}] joined "game" @:${port} (sessionId=${room.sessionId}) — 观察者在游戏内创建一个玩家实体`,
+        `[liveState:${role}] joined "${defaultGameContext.roomName}" @:${port} (sessionId=${room.sessionId}) — 观察者在游戏内创建一个玩家实体`,
       )
 
       room.onLeave((code) => {

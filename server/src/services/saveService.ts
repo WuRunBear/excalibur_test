@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import { GAME_ROOT, gameConfigsDir } from '../config.js'
+import { defaultGameContext } from '../gameContext.js'
 import { WorkspaceError, workspaceService } from './workspaceService.js'
 import type {
   SaveDetailPayload,
@@ -133,7 +133,7 @@ export class SaveService {
 
   private async dirFor(scope: SaveScope): Promise<string> {
     if (scope === 'official') {
-      return path.join(GAME_ROOT, 'data', 'saves')
+      return defaultGameContext.savesDir
     }
     return workspaceService.getPreviewSavesDir()
   }
@@ -153,7 +153,7 @@ export class SaveService {
   /** 活跃存档 saveId：本体 rules/server.json 的 saveId（缺省 'main'，容错）。 */
   private async activeSaveId(): Promise<string> {
     try {
-      const raw = await fsp.readFile(path.join(gameConfigsDir, 'rules', 'server.json'), 'utf8')
+      const raw = await fsp.readFile(path.join(defaultGameContext.gameConfigsDir, 'rules', 'server.json'), 'utf8')
       const parsed = JSON.parse(raw) as { saveId?: unknown }
       if (typeof parsed.saveId === 'string' && /^[A-Za-z0-9_-]+$/.test(parsed.saveId)) {
         return parsed.saveId

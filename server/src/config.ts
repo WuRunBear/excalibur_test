@@ -1,18 +1,21 @@
 /**
- * 管理后端配置（S1-C 完整版）。
+ * 管理后端配置（S1-C 完整版）—— T1.4 起本文件为兼容壳。
  *
- * 约定：
- * - 本文件位于 <excalibur_test>/server/src/，按相对层数定位本体仓库
- *   game_server_test（../../../game_server_test/），GAME_ROOT 环境变量可覆盖。
- * - 派生目录（logs / workspaces / backups）只定义路径；是否创建由使用方负责
- *   （本阶段只有 gameLogsDir 需要容错不存在）。
- * - 端口均可在启动管理后端时用环境变量覆盖。
+ * 游戏特化常量（GAME_ROOT / gameLogsDir / gameLogFile / gameConfigsDir /
+ * PREVIEW_PORT / OFFICIAL_PORT）已收敛到 gameContext.defaultGameContext
+ * （单一出口）；本文件保留原导出名供既有消费方引用，取值全部转自 context，
+ * 行为不变。official 展示端口的解析链（OFFICIAL_PORT env → 本体 .env PORT →
+ * 3000）随数据一起移入 gameContext.ts。
+ *
+ * 仍在本文件定义的非游戏特化配置：
+ * - repoRoot / workspacesDir / backupsDir（excalibur_test 侧目录）
+ * - ADMIN_PORT / corsOrigins（管理后端自身配置，env 可覆盖）
  */
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { InstanceRole } from './types.js'
+import { defaultGameContext } from './gameContext.js'
 
 /** 本文件所在目录（<excalibur_test>/server/src）。 */
 const hereDir = path.dirname(fileURLToPath(import.meta.url))
@@ -22,19 +25,17 @@ export const repoRoot = path.resolve(hereDir, '../..')
 
 /**
  * 本体游戏仓库根（游戏实例的工作目录）。
- * 默认从 server/src/config.ts 向上三层定位：src → server → excalibur_test → game/。
+ * 兼容壳：出自 defaultGameContext.gameRoot（定位规则见 gameContext.ts）。
  */
-export const GAME_ROOT = path.resolve(
-  process.env.GAME_ROOT ?? fileURLToPath(new URL('../../../game_server_test/', import.meta.url)),
-)
+export const GAME_ROOT = defaultGameContext.gameRoot
 
-/** 本体游戏日志目录（winston File transport 写 <游戏cwd>/logs/game.log，游戏 cwd = GAME_ROOT）。 */
-export const gameLogsDir = path.join(GAME_ROOT, 'logs')
-/** 本体游戏日志文件（logStream tail 的目标，不存在时容错等待）。 */
-export const gameLogFile = path.join(gameLogsDir, 'game.log')
+/** 本体游戏日志目录（兼容壳，出自 defaultGameContext.gameLogsDir）。 */
+export const gameLogsDir = defaultGameContext.gameLogsDir
+/** 本体游戏日志文件（兼容壳，出自 defaultGameContext.gameLogFile）。 */
+export const gameLogFile = defaultGameContext.gameLogFile
 
-/** 本体配置目录（S2-A 工作区镜像源：<GAME_ROOT>/game）。 */
-export const gameConfigsDir = path.join(GAME_ROOT, 'game')
+/** 本体配置目录（兼容壳，出自 defaultGameContext.gameConfigsDir）。 */
+export const gameConfigsDir = defaultGameContext.gameConfigsDir
 
 /** 管理端工作区目录（S2 文件系统通道使用，本阶段仅定义，不创建）。 */
 export const workspacesDir = path.join(repoRoot, 'server', 'workspaces')
@@ -44,32 +45,17 @@ export const backupsDir = path.join(repoRoot, 'server', 'backups')
 /** 管理后端 HTTP/WS 监听端口。 */
 export const ADMIN_PORT = Number(process.env.ADMIN_PORT ?? 3100)
 
-/** 预览实例端口常量（S1 仅作展示与 PORT 注入用）。 */
-export const PREVIEW_PORT = 3200
+/** 预览实例端口常量（S1 仅作展示与 PORT 注入用；兼容壳，出自 context.ports.preview）。 */
+export const PREVIEW_PORT = defaultGameContext.ports.preview
 
 /**
- * 从本体 .env 解析 PORT（模仿游戏进程 dotenv 的读取位置与不覆盖语义的近似值）。
- * 解析失败（文件不存在 / 无 PORT 行）返回 undefined。
- */
-function readGameEnvPort(): number | undefined {
-  try {
-    const raw = fs.readFileSync(path.join(GAME_ROOT, '.env'), 'utf8')
-    const m = /^PORT\s*=\s*(\d+)\s*(?:#.*)?$/m.exec(raw)
-    return m ? Number(m[1]) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * official 实例的展示端口。
+ * official 实例的展示端口（兼容壳，出自 context.ports.official）。
  *
- * official 启动时不注入 PORT（继承管理后端环境），游戏进程的 dotenv 会再读
- * 本体 .env，因此实际监听端口优先级为：管理端已注入的 PORT > 本体 .env > 3000。
- * 管理端无法得知未来注入值，这里按 OFFICIAL_PORT env → 本体 .env → 3000 解析
- * 展示值；若通过启动环境给 official 注入了 PORT，请同步设置 OFFICIAL_PORT。
+ * official 启动时不注入 PORT（继承管理后端环境），实际监听端口优先级为：
+ * 管理端已注入的 PORT > 本体 .env > 3000；解析链在 gameContext.ts 实现，
+ * 若通过启动环境给 official 注入了 PORT，请同步设置 OFFICIAL_PORT。
  */
-export const OFFICIAL_PORT = Number(process.env.OFFICIAL_PORT ?? readGameEnvPort() ?? 3000)
+export const OFFICIAL_PORT = defaultGameContext.ports.official
 
 /** 角色 → 展示端口。 */
 export function rolePort(role: InstanceRole): number {

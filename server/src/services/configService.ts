@@ -2,8 +2,9 @@
  * 配置读写与校验服务（S2-A）。
  *
  * - 全部操作作用于活动工作区的 game/ 镜像（无活动工作区 → "未设置活动工作区"）。
- * - schema 一律经 gameBridge 引用（services 禁止直接 import framework）。
- * - schema 路由表（relPath → schemaKind，kind=规则名时直接用文件名干）：
+ * - schema 校验经 sidecar RPC（T1.5：SCHEMA_TABLE 迁入 driver，平台侧不再持有
+ *   任何 zod 对象，也不 import framework）；schema 路由表（relPath → schemaKind，
+ *   kind=规则名时直接用文件名干）：
  *     game.json                 → GameDefinition
  *     entities/*.json           → Archetype
  *     maps/registry.json        → MapRegistry
@@ -19,52 +20,27 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import {
-  ArchetypeSchema,
-  CombatRuleSchema,
-  CraftingRuleSchema,
-  DayNightRuleSchema,
-  GameDefinitionSchema,
-  MapRegistrySchema,
-  NeedsRuleSchema,
-  ServerRuleSchema,
-  validateWholeConfig,
-} from '../../gameBridge/index.js'
+import { defaultGameContext } from '../gameContext.js'
+import { sidecar } from '../sidecar/client.js'
+import { sidecarCall } from '../sidecar/errors.js'
 import { WorkspaceError, workspaceService } from './workspaceService.js'
 import type { ConfigTreeNode, ConfigValidationError, WorkspaceChange } from '../types.js'
 
 /**
- * schema 最小结构接口（safeParse 形状）。
- *
- * 不 import zod 的 ZodType：本体 schema 与 server 依赖的 zod 可能是不同实例
- * （pnpm 双仓），类类型不兼容；此处只依赖"有 safeParse"这一结构事实。
+ * relPath（'/' 分隔，相对工作区 game/）→ schemaKind；不在路由数据内 → null。
+ * 路由数据出自 gameContext.schemaRoutes（pattern 完整锚定正则源串；kind='*'
+ * 语义表示 kind=命中文件的文件名，去 .json 后缀，即规则名）。
  */
-interface SafeParseLike {
-  safeParse(data: unknown):
-    | { success: true; data: unknown }
-    | { success: false; error: { issues: readonly { path: PropertyKey[]; message: string }[] } }
-}
-
-/** 已登记 schema 的路由表（其他路径 schemaKind=null 不校验）。 */
-const SCHEMA_TABLE: Record<string, SafeParseLike> = {
-  GameDefinition: GameDefinitionSchema,
-  Archetype: ArchetypeSchema,
-  MapRegistry: MapRegistrySchema,
-  combat: CombatRuleSchema,
-  needs: NeedsRuleSchema,
-  crafting: CraftingRuleSchema,
-  daynight: DayNightRuleSchema,
-  server: ServerRuleSchema,
-}
-
-/** relPath（'/' 分隔，相对工作区 game/）→ schemaKind；不在路由表内 → null。 */
 export function routeSchemaKind(relPath: string): string | null {
   const norm = relPath.split(path.sep).join('/')
-  if (norm === 'game.json') return 'GameDefinition'
-  if (/^entities\/[^/]+\.json$/.test(norm)) return 'Archetype'
-  if (norm === 'maps/registry.json') return 'MapRegistry'
-  const rule = /^rules\/(combat|needs|crafting|daynight|server)\.json$/.exec(norm)
-  if (rule) return rule[1]
+  for (const route of defaultGameContext.schemaRoutes) {
+    if (!new RegExp(route.pattern).test(norm)) continue
+    if (route.kind === '*') {
+      const file = norm.slice(norm.lastIndexOf('/') + 1)
+      return file.replace(/\.json$/, '')
+    }
+    return route.kind
+  }
   return null
 }
 
@@ -158,15 +134,12 @@ export class ConfigService {
       } catch (err) {
         throw new WorkspaceError(400, `JSON 语法错误：${syntaxMessage(err as Error, content)}`)
       }
-      // 2) schema 校验（路由表未命中的文件视为通过）
+      // 2) schema 校验（sidecar RPC；路由表未命中的文件视为通过）
       const kind = routeSchemaKind(rel)
       if (kind) {
-        const schema = SCHEMA_TABLE[kind]
-        const result = schema.safeParse(parsed)
-        if (!result.success) {
-          throw new ValidationFailedError(
-            this.mapZodIssues(result.error.issues, content),
-          )
+        const result = await sidecarCall(sidecar.validateFile({ kind, data: parsed }))
+        if (!result.valid) {
+          throw new ValidationFailedError(this.mapZodIssues(result.issues, content))
         }
       }
     }
@@ -200,19 +173,21 @@ export class ConfigService {
         ],
       }
     }
-    const result = SCHEMA_TABLE[kind].safeParse(parsed)
-    if (result.success) return { schemaKind: kind, valid: true, errors: [] }
+    const result = await sidecarCall(sidecar.validateFile({ kind, data: parsed }))
+    if (result.valid) return { schemaKind: kind, valid: true, errors: [] }
     return {
       schemaKind: kind,
       valid: false,
-      errors: this.mapZodIssues(result.error.issues, content),
+      errors: this.mapZodIssues(result.issues, content),
     }
   }
 
-  /** 整体校验（Spike-2 核心函数，经 gameBridge）：活动工作区 game.json 绝对路径。 */
+  /** 整体校验（Spike-2 核心函数，经 sidecar RPC）：活动工作区 game.json 绝对路径。 */
   async validateAll(): Promise<{ valid: boolean; message: string }> {
     const { gameDir } = await workspaceService.requireActiveGameDir()
-    const result = validateWholeConfig(path.join(gameDir, 'game.json'))
+    const result = await sidecarCall(
+      sidecar.validateWhole({ gameJsonPath: path.join(gameDir, 'game.json') }),
+    )
     return { valid: result.ok, message: result.message }
   }
 

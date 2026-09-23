@@ -16,7 +16,7 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 
-import { gameLogFile, gameLogsDir } from '../config.js'
+import { defaultGameContext } from '../gameContext.js'
 import type { InstanceRole, LogMessage, LogSource, ProcessSource } from '../types.js'
 
 /** 环形缓冲容量。 */
@@ -111,7 +111,7 @@ export class LogStreamService {
   /** 初始 offset：文件已存在则定位到末尾（只转发新行），不存在则从头等待。 */
   private async bootstrapOffset(): Promise<void> {
     try {
-      const st = await fsp.stat(gameLogFile)
+      const st = await fsp.stat(defaultGameContext.gameLogFile)
       this.fileOffset = st.isFile() ? st.size : 0
     } catch {
       this.fileOffset = 0
@@ -176,7 +176,7 @@ export class LogStreamService {
   private ensureWatcher(): void {
     if (this.watcher) return
     try {
-      this.watcher = fs.watch(gameLogsDir, { persistent: false }, (_event, filename) => {
+      this.watcher = fs.watch(defaultGameContext.gameLogsDir, { persistent: false }, (_event, filename) => {
         // filename 在部分平台为 null，无法区分时一律尝试 pump（幂等）。
         if (!filename || filename === 'game.log') void this.pump()
       })
@@ -199,7 +199,7 @@ export class LogStreamService {
     if (this.pumping) return
     this.pumping = true
     try {
-      const st = await fsp.stat(gameLogFile).catch(() => null)
+      const st = await fsp.stat(defaultGameContext.gameLogFile).catch(() => null)
       if (!st || !st.isFile()) {
         // 文件被移走 / 尚未创建：重置状态，等待下次事件（winston 重建文件）。
         this.fileOffset = 0
@@ -214,7 +214,7 @@ export class LogStreamService {
       if (st.size === this.fileOffset) return
 
       const length = st.size - this.fileOffset
-      const fh = await fsp.open(gameLogFile, 'r')
+      const fh = await fsp.open(defaultGameContext.gameLogFile, 'r')
       try {
         const buffer = Buffer.allocUnsafe(length)
         const { bytesRead } = await fh.read(buffer, 0, length, this.fileOffset)

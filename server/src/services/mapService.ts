@@ -2,24 +2,23 @@
  * 地图工具服务（S5-A）：geometry 预览 / 导出 / 双源 registry 读取。
  *
  * 双源：'workspace'（活动工作区 game/maps/registry.json，默认）| 'official'（本体）。
- * geometry 生成 = gameBridge.buildMapGeometry（纯函数，不启动游戏，不受 S3
- * ecosystems 完整性约束影响）+ GeneratorRegistry 取自 getRegistries().mapGeneratorRegistry。
+ * geometry 生成经 sidecar.buildMapGeometry RPC（T1.6）：tiledPath 内联等文件 I/O
+ * 保留平台侧，最终 config 送 driver（内自举 framework、生成并序列化，平台不再
+ * 接触 MapGeometry 类实例）；导出经 sidecar.exportMapArtifacts（临时目录由 driver
+ * 写 os tmp，清理责任仍在路由层）。
  * tiled 类型图不走 pipeline 生成 → 400 明确报错。
  */
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 
-import {
-  bootstrapFramework,
-  buildMapGeometry,
-  exportGeometryArtifacts,
-  getRegistries,
-  serializeGeometry,
-} from '../../gameBridge/index.js'
-import type { SerializedMapGeometry, TilePalette } from '../../gameBridge/index.js'
+import { sidecar } from '../sidecar/client.js'
+import { sidecarCall } from '../sidecar/errors.js'
+import type {
+  MapGenerationConfig,
+  SerializedMapGeometry,
+  TilePalette,
+} from '../sidecar/protocol.js'
 import { gameConfigsDir } from '../config.js'
 import { WorkspaceError, workspaceService } from './workspaceService.js'
 import type {
@@ -41,6 +40,12 @@ function normalizeSource(input: unknown): MapSource {
   if (input === 'workspace' || input === 'official') return input
   throw new WorkspaceError(400, `非法 source "${String(input)}"（expected "workspace" | "official"）`)
 }
+
+/**
+ * SidecarError → WorkspaceError 的公共实现在 sidecar/errors.ts（sidecarCall，
+ * T1.7 收敛，§0.2 错误码 → REST 状态映射）。game_config_error（422）的文案由
+ * configErrorMessage 参数定制，保持原 buildGeometry 422 语义与文案格式。
+ */
 
 export class MapService {
   /** 双源 registry 读取（保留声明顺序）；缺文件 → 404。 */
@@ -71,13 +76,13 @@ export class MapService {
   /** 单图 geometry 预览（SerializedMapGeometry，与本体 /maps/runtime 同形）。 */
   async geometry(key: string, sourceInput: unknown): Promise<SerializedMapGeometry> {
     const source = normalizeSource(sourceInput)
-    const geometry = await this.buildGeometry(source, key)
-    return serializeGeometry(geometry)
+    return this.buildGeometry(source, key)
   }
 
   /**
-   * 导出 png/json：exportGeometryArtifacts 写入每请求独立的临时目录，
-   * 调用方（路由）传输后负责清理返回的 dir。
+   * 导出 png/json：sidecar.exportMapArtifacts 由 driver 写入每请求独立的临时目录
+   * （os tmp/admin-map-export-<uuid>/），调用方（路由）传输后负责清理返回的 dir
+   * （现状语义不变）。
    */
   async exportMap(
     key: string,
@@ -92,15 +97,15 @@ export class MapService {
     const fmt = format ?? 'png'
     const palette = this.parsePalette(paletteB64)
 
-    const geometry = await this.buildGeometry(source, key)
-    const dir = path.join(os.tmpdir(), `admin-map-export-${crypto.randomUUID()}`)
-    const { jsonPath, pngPath } = exportGeometryArtifacts(geometry, {
-      outDir: dir,
-      ...(palette ? { palette } : {}),
-    })
+    const config = await this.mapConfig(source, key)
+    // 生成失败语义与 buildGeometry 一致（原现状：buildGeometry 先行 422）
+    const artifacts = await sidecarCall(
+      sidecar.exportMapArtifacts({ config, ...(palette ? { palette } : {}) }),
+      (message) => `地图生成失败：${message}`,
+    )
     return {
-      dir,
-      filePath: fmt === 'png' ? pngPath : jsonPath,
+      dir: artifacts.dir,
+      filePath: fmt === 'png' ? artifacts.pngPath : artifacts.jsonPath,
       filename: `${key}.${fmt}`,
       contentType: fmt === 'png' ? 'image/png' : 'application/json',
     }
@@ -111,7 +116,7 @@ export class MapService {
   // ---------------------------------------------------------------------------
 
   /**
-   * 加载期预处理 + 单次生成 MapGeometry。
+   * 加载期预处理，组装 MapGenerationConfig（纯平台侧文件 I/O，无 RPC）。
    *
    * 复刻本体 loadGameDefinition.resolveMapConfigs 的加载期约定（buildMapGeometry
    * 积木零文件 I/O）：
@@ -119,14 +124,12 @@ export class MapService {
    *   内联为 params.tiled；
    * - tiled 图：转为 {generator:'tiled-source', params:{tiled}} 管道——但按 S5
    *   契约直接 400（前端只预览 pipeline 图）。
-   * 管道错误（未注册积木/出口结构）→ 422。
    */
-  private async buildGeometry(source: MapSource, key: string) {
-    const { rootDir, registryDir, entry } = await this.mapEntry(source, key)
+  private async mapConfig(source: MapSource, key: string): Promise<MapGenerationConfig> {
+    const { registryDir, entry } = await this.mapEntry(source, key)
     if (entry.kind === 'tiled') {
       throw new WorkspaceError(400, 'tiled 类型地图不支持 pipeline 几何生成')
     }
-    bootstrapFramework()
 
     const pipeline: { generator: string; params?: Record<string, unknown> }[] = []
     const steps = Array.isArray(entry.pipeline) ? (entry.pipeline as MapPipelineStep[]) : []
@@ -161,20 +164,27 @@ export class MapService {
       pipeline.push({ generator: step.generator, params: { ...rest, tiled: tiledJson } })
     }
 
-    const config = {
+    return {
       key,
       seed: typeof entry.seed === 'number' ? entry.seed : 0,
       pipeline,
     }
-    try {
-      return buildMapGeometry(config, getRegistries().mapGeneratorRegistry)
-    } catch (err) {
-      // 管道引用未注册积木 / 出口结构硬错误 → 配置问题
-      throw new WorkspaceError(
-        422,
-        `地图生成失败：${err instanceof Error ? err.message : String(err)}`,
-      )
-    }
+  }
+
+  /**
+   * 单次生成 SerializedMapGeometry：config 组装（mapConfig，平台侧）+ sidecar
+   * buildMapGeometry RPC（60s 超时；bootstrap 自举与 serializeGeometry 序列化
+   * 均在 driver 内完成，平台不再接触 MapGeometry 类实例）。
+   * 管道错误（未注册积木/出口结构）→ 422（game_config_error，文案格式不变）。
+   */
+  private async buildGeometry(source: MapSource, key: string): Promise<SerializedMapGeometry> {
+    const config = await this.mapConfig(source, key)
+    // 管道引用未注册积木 / 出口结构硬错误 → 配置问题（driver game_config_error），
+    // 422 文案格式由 sidecarCall 的 configErrorMessage 定制保持不变。
+    return sidecarCall(
+      sidecar.buildMapGeometry({ config }),
+      (message) => `地图生成失败：${message}`,
+    )
   }
 
   /** 双源根目录（registry/entity-rules 所在的 game 目录）。 */
