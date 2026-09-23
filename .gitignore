@@ -50,3 +50,5 @@ server/dist/
 server/games/registry.json
 server/games/*/game.json
 server/games/*/checkout/
+
+web/dist.bak/
