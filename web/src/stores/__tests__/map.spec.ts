@@ -7,10 +7,14 @@ const mocks = vi.hoisted(() => ({
   fetchEntityRules: vi.fn(),
 }))
 
-vi.mock('@/api/admin', () => ({
-  fetchMaps: mocks.fetchMaps,
-  fetchEntityRules: mocks.fetchEntityRules,
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...original,
+    fetchMaps: mocks.fetchMaps,
+    fetchEntityRules: mocks.fetchEntityRules,
+  }
+})
 
 import { useMapStore } from '@/stores/map'
 import type { MapsPayload } from '@/api/admin'

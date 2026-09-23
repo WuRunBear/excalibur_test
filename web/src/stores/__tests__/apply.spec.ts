@@ -13,35 +13,39 @@ const mocks = vi.hoisted(() => ({
   messageError: vi.fn(),
 }))
 
-vi.mock('@/api/admin', () => ({
-  AdminApiError: class AdminApiError extends Error {
-    readonly code: number
-    readonly detail: unknown
-    readonly status: number
-    constructor(message: string, code = 1, detail?: unknown, status = 0) {
-      super(message)
-      this.name = 'AdminApiError'
-      this.code = code
-      this.detail = detail
-      this.status = status
-    }
-  },
-  extractApplyInvalidFiles: (detail: unknown) => {
-    if (typeof detail !== 'object' || detail === null) return null
-    const invalid = (detail as { invalid?: unknown }).invalid
-    return Array.isArray(invalid) ? (invalid as never[]) : null
-  },
-  extractDetailMessage: (detail: unknown) => {
-    if (typeof detail !== 'object' || detail === null) return null
-    const message = (detail as { message?: unknown }).message
-    return typeof message === 'string' ? message : null
-  },
-  fetchApplyPlan: mocks.fetchApplyPlan,
-  executeApply: mocks.executeApply,
-  fetchBackups: mocks.fetchBackups,
-  rollbackBackup: mocks.rollbackBackup,
-  fetchConfigFile: mocks.fetchConfigFile,
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...original,
+    AdminApiError: class AdminApiError extends Error {
+      readonly code: number
+      readonly detail: unknown
+      readonly status: number
+      constructor(message: string, code = 1, detail?: unknown, status = 0) {
+        super(message)
+        this.name = 'AdminApiError'
+        this.code = code
+        this.detail = detail
+        this.status = status
+      }
+    },
+    extractApplyInvalidFiles: (detail: unknown) => {
+      if (typeof detail !== 'object' || detail === null) return null
+      const invalid = (detail as { invalid?: unknown }).invalid
+      return Array.isArray(invalid) ? (invalid as never[]) : null
+    },
+    extractDetailMessage: (detail: unknown) => {
+      if (typeof detail !== 'object' || detail === null) return null
+      const message = (detail as { message?: unknown }).message
+      return typeof message === 'string' ? message : null
+    },
+    fetchApplyPlan: mocks.fetchApplyPlan,
+    executeApply: mocks.executeApply,
+    fetchBackups: mocks.fetchBackups,
+    rollbackBackup: mocks.rollbackBackup,
+    fetchConfigFile: mocks.fetchConfigFile,
+  }
+})
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: () => ({ refresh: mocks.wsRefresh }),

@@ -10,18 +10,17 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { gameConfigsDir } from '../config.js'
-import { workspaceService } from '../services/workspaceService.js'
 import type { ConfigContextPayload } from '../types.js'
-import { handleError, ok } from './helpers.js'
+import { handleError, ok, servicesForRequest } from './helpers.js'
 
 export const configContextRouter = Router()
 
-configContextRouter.get('/', async (_req: Request, res: Response) => {
+configContextRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const official = await workspaceService.describeDir(gameConfigsDir)
-    const workspace = await workspaceService.describeActiveWorkspaceGame()
-    const changes = workspace ? await workspaceService.diffAgainstSource() : []
+    const services = servicesForRequest(req)
+    const official = await services.workspace.describeDir(services.context.gameConfigsDir)
+    const workspace = await services.workspace.describeActiveWorkspaceGame()
+    const changes = workspace ? await services.workspace.diffAgainstSource() : []
 
     const payload: ConfigContextPayload = {
       official: { fingerprint: official.fingerprint, fileCount: official.fileCount },

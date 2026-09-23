@@ -45,3 +45,8 @@ __screenshots__/
 server/workspaces/
 server/backups/
 server/dist/
+
+# games registry & per-game runtime data（T2.1 / Q1：运行时状态，不入 git）
+server/games/registry.json
+server/games/*/game.json
+server/games/*/checkout/

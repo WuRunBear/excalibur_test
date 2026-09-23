@@ -24,6 +24,8 @@ export type InstanceStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
 /** 实例状态快照（REST 与 WS 广播共用结构）。 */
 export interface InstanceSnapshot {
+  /** 所属游戏（T2.4 per-game 实例化：snapshot 增 gameId 字段，REST/WS 消费方可区分来源游戏）。 */
+  gameId: string
   role: InstanceRole
   status: InstanceStatus
   /** 游戏进程树根 pid（pnpm dev 的直接子进程）；未运行时为 null */

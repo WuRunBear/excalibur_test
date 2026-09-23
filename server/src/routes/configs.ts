@@ -16,15 +16,14 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { configService } from '../services/configService.js'
-import { fail, handleError, ok } from './helpers.js'
+import { fail, handleError, ok, servicesForRequest } from './helpers.js'
 
 export const configsRouter = Router()
 
 /** GET /api/configs/tree → 配置文件树。 */
-configsRouter.get('/tree', async (_req: Request, res: Response) => {
+configsRouter.get('/tree', async (req: Request, res: Response) => {
   try {
-    ok(res, await configService.tree())
+    ok(res, await servicesForRequest(req).config.tree())
   } catch (err) {
     handleError(res, err)
   }
@@ -38,7 +37,7 @@ configsRouter.get('/file', async (req: Request, res: Response) => {
       fail(res, 400, 'query path 必须为非空字符串')
       return
     }
-    ok(res, await configService.readFile(rel))
+    ok(res, await servicesForRequest(req).config.readFile(rel))
   } catch (err) {
     handleError(res, err)
   }
@@ -56,7 +55,7 @@ configsRouter.put('/file', async (req: Request, res: Response) => {
       fail(res, 400, 'content 必须为字符串')
       return
     }
-    ok(res, await configService.writeFile(rel, content))
+    ok(res, await servicesForRequest(req).config.writeFile(rel, content))
   } catch (err) {
     handleError(res, err)
   }
@@ -74,16 +73,16 @@ configsRouter.post('/validate', async (req: Request, res: Response) => {
       fail(res, 400, 'content 必须为字符串')
       return
     }
-    ok(res, await configService.validateFile(rel, content))
+    ok(res, await servicesForRequest(req).config.validateFile(rel, content))
   } catch (err) {
     handleError(res, err)
   }
 })
 
 /** POST /api/configs/validate-all → 活动工作区整体校验（Spike-2 核心函数）。 */
-configsRouter.post('/validate-all', async (_req: Request, res: Response) => {
+configsRouter.post('/validate-all', async (req: Request, res: Response) => {
   try {
-    ok(res, await configService.validateAll())
+    ok(res, await servicesForRequest(req).config.validateAll())
   } catch (err) {
     handleError(res, err)
   }

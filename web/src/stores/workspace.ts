@@ -4,7 +4,7 @@
  * 列表 / 活动工作区 / 新建（自动激活）/ 激活 / 重命名 / 删除（本体无痕）；
  * 反馈走 ElMessage，列表加载错误经 lastError 供视图渲染空态与重试。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 
@@ -17,6 +17,7 @@ import {
   renameWorkspace,
 } from '@/api/admin'
 import type { WorkspaceMeta } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof AdminApiError ? err.message : fallback
@@ -69,6 +70,19 @@ export const useWorkspaceStore = defineStore('admin-workspace', () => {
     if (loaded.value || loading.value) return
     await load()
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 清空列表与活动标记；
+  // 工作区视图重挂载后 ensureLoaded 以新 gameId 重取。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      items.value = []
+      activeId.value = null
+      loaded.value = false
+      lastError.value = null
+    },
+  )
 
   /** 新建工作区（后端自动激活）：本地同步 items 与 activeId。 */
   async function create(name: string): Promise<boolean> {

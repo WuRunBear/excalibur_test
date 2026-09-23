@@ -15,15 +15,14 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { workspaceService } from '../services/workspaceService.js'
-import { fail, handleError, ok } from './helpers.js'
+import { fail, handleError, ok, servicesForRequest } from './helpers.js'
 
 export const workspaceRouter = Router()
 
 /** GET /api/workspaces → 列表 + 活动工作区。 */
-workspaceRouter.get('/', async (_req: Request, res: Response) => {
+workspaceRouter.get('/', async (req: Request, res: Response) => {
   try {
-    ok(res, await workspaceService.list())
+    ok(res, await servicesForRequest(req).workspace.list())
   } catch (err) {
     handleError(res, err)
   }
@@ -37,7 +36,7 @@ workspaceRouter.post('/', async (req: Request<{ id: string }>, res: Response) =>
       fail(res, 400, 'name 必须为非空字符串')
       return
     }
-    ok(res, await workspaceService.create(name))
+    ok(res, await servicesForRequest(req).workspace.create(name))
   } catch (err) {
     handleError(res, err)
   }
@@ -46,7 +45,7 @@ workspaceRouter.post('/', async (req: Request<{ id: string }>, res: Response) =>
 /** POST /api/workspaces/:id/activate → 设为活动。 */
 workspaceRouter.post('/:id/activate', async (req: Request<{ id: string }>, res: Response) => {
   try {
-    ok(res, await workspaceService.activate(req.params.id))
+    ok(res, await servicesForRequest(req).workspace.activate(req.params.id))
   } catch (err) {
     handleError(res, err)
   }
@@ -60,7 +59,7 @@ workspaceRouter.patch('/:id', async (req: Request<{ id: string }>, res: Response
       fail(res, 400, 'name 必须为非空字符串')
       return
     }
-    ok(res, await workspaceService.rename(req.params.id, name))
+    ok(res, await servicesForRequest(req).workspace.rename(req.params.id, name))
   } catch (err) {
     handleError(res, err)
   }
@@ -69,7 +68,7 @@ workspaceRouter.patch('/:id', async (req: Request<{ id: string }>, res: Response
 /** DELETE /api/workspaces/:id → 删除（活动工作区被删则 activeId 置 null）。 */
 workspaceRouter.delete('/:id', async (req: Request<{ id: string }>, res: Response) => {
   try {
-    ok(res, await workspaceService.remove(req.params.id))
+    ok(res, await servicesForRequest(req).workspace.remove(req.params.id))
   } catch (err) {
     handleError(res, err)
   }
@@ -78,7 +77,7 @@ workspaceRouter.delete('/:id', async (req: Request<{ id: string }>, res: Respons
 /** GET /api/workspaces/:id/changes → 当前镜像 vs 基线的文件级变更。 */
 workspaceRouter.get('/:id/changes', async (req: Request<{ id: string }>, res: Response) => {
   try {
-    ok(res, await workspaceService.changes(req.params.id))
+    ok(res, await servicesForRequest(req).workspace.changes(req.params.id))
   } catch (err) {
     handleError(res, err)
   }

@@ -1,7 +1,7 @@
 /**
  * 注册表条目归一化（S6-B）。
  *
- * GET /api/registries 的五类条目形状各异（systems/archetypes 为对象数组、
+ * GET games/:gameId/registries 的五类条目形状各异（systems/archetypes 为对象数组、
  * actions 含 name、components 只取键、mapGenerators 为 {id} 数组），
  * 这里统一归一化为 { id, name, description }，宽容未知字段与未知形状。
  */

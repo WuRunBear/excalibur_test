@@ -22,11 +22,14 @@ import path from 'node:path'
 
 import { createTwoFilesPatch, structuredPatch } from 'diff'
 
-import { backupsDir, gameConfigsDir } from '../config.js'
-import { sidecar } from '../sidecar/client.js'
+import { backupsDir as defaultBackupsRoot } from '../config.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { sidecarManager } from '../sidecar/manager.js'
+import type { SidecarClient } from '../sidecar/client.js'
 import { sidecarCall } from '../sidecar/errors.js'
-import { configService, routeSchemaKind } from './configService.js'
-import { WorkspaceError, workspaceService } from './workspaceService.js'
+import { routeSchemaKind, configService, type ConfigService } from './configService.js'
+import { toHolder, WorkspaceError, workspaceService, type WorkspaceService } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
 import type {
   ApplyExecutePayload,
   ApplyFilePlan,
@@ -58,9 +61,42 @@ class ApplyDetailError extends WorkspaceError {
   }
 }
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface ApplyServiceOptions {
+  /** 游戏上下文（或容器 contextHolder）。 */
+  context: GameContext | ContextHolder
+  /** 同一容器的 per-game 工作区服务（活动工作区/变更清单/基线刷新）。 */
+  workspace: WorkspaceService
+  /** 同一容器的 per-game 配置服务（文件级校验）。 */
+  config: ConfigService
+  /** 备份根目录（per-game 目录 = <root>/<gameId>）；缺省 config.backupsDir。 */
+  backupsRoot?: string
+  /** sidecar client 解析器（测试注入 stub 用）；缺省经 sidecarManager.forGame(gameId)。 */
+  sidecar?: () => SidecarClient
+}
+
 export class ApplyService {
   /** execute/rollback 共用互斥标志。 */
   private busy = false
+  private readonly holder: ContextHolder
+  /** per-game 备份目录（<backupsRoot>/<gameId>）。 */
+  private readonly backupsDir: string
+  private readonly workspace: ApplyServiceOptions['workspace']
+  private readonly config: ApplyServiceOptions['config']
+  private readonly resolveSidecar: () => SidecarClient
+
+  constructor(options: ApplyServiceOptions) {
+    this.holder = toHolder(options.context)
+    this.backupsDir = path.join(options.backupsRoot ?? defaultBackupsRoot, this.ctx.gameId)
+    this.workspace = options.workspace
+    this.config = options.config
+    this.resolveSidecar = options.sidecar ?? (() => sidecarManager.forGame(this.ctx.gameId))
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
 
   // ---------------------------------------------------------------------------
   // 计划
@@ -68,8 +104,8 @@ export class ApplyService {
 
   /** 对当前全部 changes 出落盘计划（只读，不落锁）。 */
   async plan(): Promise<ApplyPlanPayload> {
-    const { gameDir } = await workspaceService.requireActiveGameDir()
-    const changes = await workspaceService.diffAgainstSource()
+    const { gameDir } = await this.workspace.requireActiveGameDir()
+    const changes = await this.workspace.diffAgainstSource()
     const files: ApplyFilePlan[] = []
     for (const change of changes) {
       files.push(await this.buildFilePlan(gameDir, change))
@@ -80,7 +116,7 @@ export class ApplyService {
   /** 单文件计划条目：读两侧内容 → diff 统计 → 文件级校验。 */
   private async buildFilePlan(gameDir: string, change: WorkspaceChange): Promise<ApplyFilePlan> {
     const wsAbs = path.join(gameDir, change.path)
-    const sourceAbs = path.join(gameConfigsDir, change.path)
+    const sourceAbs = path.join(this.ctx.gameConfigsDir, change.path)
 
     const wsContent =
       change.status === 'deleted' ? null : await fsp.readFile(wsAbs, 'utf8')
@@ -110,14 +146,14 @@ export class ApplyService {
     // 文件级校验：deleted 无工作区内容 → 视为通过；schemaKind null → 通过
     let valid = true
     let validationErrors: ConfigValidationError[] = []
-    let schemaKind: string | null = routeSchemaKind(change.path)
+    let schemaKind: string | null = routeSchemaKind(change.path, this.ctx)
     if (change.status !== 'deleted' && schemaKind && wsContent !== null) {
-      const r = await configService.validateFile(change.path, wsContent)
+      const r = await this.config.validateFile(change.path, wsContent)
       valid = r.valid
       validationErrors = r.errors
       schemaKind = r.schemaKind
     } else if (change.status === 'deleted') {
-      schemaKind = routeSchemaKind(change.path)
+      schemaKind = routeSchemaKind(change.path, this.ctx)
     }
 
     return {
@@ -154,11 +190,11 @@ export class ApplyService {
     const begunAt = Date.now()
 
     // a. 活动工作区
-    const { id: wsId, gameDir } = await workspaceService.requireActiveGameDir()
+    const { id: wsId, gameDir } = await this.workspace.requireActiveGameDir()
 
     // b. TOCTOU 复核：重算 changes，要求 paths 非空且全部命中
     const requested = this.normalizePaths(paths)
-    const changes = await workspaceService.diffAgainstSource()
+    const changes = await this.workspace.diffAgainstSource()
     const changeMap = new Map(changes.map((c) => [c.path, c]))
     const selected: WorkspaceChange[] = []
     for (const rel of requested) {
@@ -178,7 +214,7 @@ export class ApplyService {
       } catch {
         throw new WorkspaceError(409, WS_CHANGED_MSG) // 计划后有文件被删
       }
-      const r = await configService.validateFile(entry.path, content)
+      const r = await this.config.validateFile(entry.path, content)
       if (!r.valid) invalid.push({ path: entry.path, validationErrors: r.errors })
     }
     if (invalid.length > 0) {
@@ -188,7 +224,7 @@ export class ApplyService {
     // d. 整体校验终门（S3 结论：文件级 schema 对 ecosystems 等跨文件约束无感；
     //    T1.5 起经 sidecar validateWhole，落盘校验终门语义不变）
     const whole = await sidecarCall(
-      sidecar.validateWhole({ gameJsonPath: path.join(gameDir, 'game.json') }),
+      this.resolveSidecar().validateWhole({ gameJsonPath: path.join(gameDir, 'game.json') }),
     )
     if (!whole.ok) {
       throw new ApplyDetailError(422, '整体校验未通过', { message: whole.message })
@@ -196,7 +232,7 @@ export class ApplyService {
 
     // e. 备份 → 写回/删除 → 刷新基线
     const backupId = this.genBackupId()
-    const backupRoot = path.join(backupsDir, backupId)
+    const backupRoot = path.join(this.backupsDir, backupId)
     const backupFilesDir = path.join(backupRoot, 'files')
     await fsp.mkdir(backupFilesDir, { recursive: true })
 
@@ -215,7 +251,7 @@ export class ApplyService {
     }
     await fsp.writeFile(path.join(backupRoot, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
 
-    await workspaceService.refreshBaseManifest(wsId)
+    await this.workspace.refreshBaseManifest(wsId)
 
     return { backupId, applied, durationMs: Date.now() - begunAt }
   }
@@ -226,7 +262,7 @@ export class ApplyService {
     backupFilesDir: string,
     entry: WorkspaceChange,
   ): Promise<BackupFileAction> {
-    const sourceAbs = path.join(gameConfigsDir, entry.path)
+    const sourceAbs = path.join(this.ctx.gameConfigsDir, entry.path)
     const sourceExists = fs.existsSync(sourceAbs)
 
     if (entry.status === 'modified' && !sourceExists) {
@@ -237,7 +273,7 @@ export class ApplyService {
       if (sourceExists) {
         await this.backupFile(sourceAbs, backupFilesDir, entry.path)
         await fsp.unlink(sourceAbs)
-        await this.pruneEmptyDirs(path.dirname(sourceAbs), gameConfigsDir)
+        await this.pruneEmptyDirs(path.dirname(sourceAbs), this.ctx.gameConfigsDir)
       }
       return 'deleted'
     }
@@ -257,13 +293,13 @@ export class ApplyService {
 
   /** 备份列表（createdAt 倒序；manifest 缺失/损坏的条目跳过）。 */
   async listBackups(): Promise<BackupListPayload> {
-    await fsp.mkdir(backupsDir, { recursive: true })
-    const entries = await fsp.readdir(backupsDir, { withFileTypes: true })
+    await fsp.mkdir(this.backupsDir, { recursive: true })
+    const entries = await fsp.readdir(this.backupsDir, { withFileTypes: true })
     const items: BackupInfo[] = []
     for (const e of entries) {
       if (!e.isDirectory() || !BACKUP_ID_RE.test(e.name)) continue
       try {
-        const raw = await fsp.readFile(path.join(backupsDir, e.name, 'manifest.json'), 'utf8')
+        const raw = await fsp.readFile(path.join(this.backupsDir, e.name, 'manifest.json'), 'utf8')
         const m = JSON.parse(raw) as BackupInfo
         if (m && typeof m.createdAt === 'number' && Array.isArray(m.files)) {
           items.push({ backupId: e.name, createdAt: m.createdAt, files: m.files })
@@ -291,13 +327,14 @@ export class ApplyService {
     if (!BACKUP_ID_RE.test(backupId)) {
       throw new WorkspaceError(404, `备份不存在：${backupId}`)
     }
-    const backupRoot = path.join(backupsDir, backupId)
+    const backupRoot = path.join(this.backupsDir, backupId)
     const manifestPath = path.join(backupRoot, 'manifest.json')
     if (!fs.existsSync(manifestPath)) {
       throw new WorkspaceError(404, `备份不存在：${backupId}`)
     }
     const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8')) as BackupInfo
     const backupFilesDir = path.join(backupRoot, 'files')
+    const gameConfigsDir = this.ctx.gameConfigsDir
 
     const restored: BackupFileEntry[] = []
     for (const entry of manifest.files) {
@@ -336,7 +373,7 @@ export class ApplyService {
         throw new WorkspaceError(400, 'paths 必须为非空字符串数组')
       }
       // 仅接受本体 game/ 下相对路径（穿越防护）
-      this.guardWithin(gameConfigsDir, p)
+      this.guardWithin(this.ctx.gameConfigsDir, p)
       out.push(path.normalize(p).split(path.sep).join('/'))
     }
     return [...new Set(out)]
@@ -383,5 +420,16 @@ export class ApplyService {
   }
 }
 
-/** apply 服务单例。 */
-export const applyService = new ApplyService()
+/**
+ * apply 服务单例（compat 壳，T2.4）。
+ *
+ * 绑定 defaultGameContext（≡ forGame('gst') 语义）+ workspaceService/configService
+ * 单例；backupsRoot 缺省 → per-game 备份目录为 `<repoRoot>/server/backups/gst`
+ * （存量数据仍在旧扁平位置，目录迁移是 T2.6）。路由层改接 servicesFor 是
+ * T2.7 的事，本单例保证过渡期行为连续。
+ */
+export const applyService = new ApplyService({
+  context: defaultGameContext,
+  workspace: workspaceService,
+  config: configService,
+})

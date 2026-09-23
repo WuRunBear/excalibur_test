@@ -79,7 +79,7 @@ defineOptions({ name: 'LogConsole' })
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { fetchRecentLogs, subscribeAdminChannel } from '@/api/admin'
+import { channelInstanceLog, fetchRecentLogs, subscribeAdminChannel } from '@/api/admin'
 import type { AdminSocketHandle, InstanceRole, LogMessage, LogSource } from '@/api/admin'
 import { formatClock } from '@/utils/format'
 
@@ -272,7 +272,7 @@ watch(filter, () => {
 })
 
 onMounted(() => {
-  socketHandle = subscribeAdminChannel(`instance:log:${props.role}`, {
+  socketHandle = subscribeAdminChannel(channelInstanceLog(props.role), {
     onMessage: onWsMessage,
     onOpen: () => {
       // 首连未完成回填 → 补做；之后的 open 视为断线重连 → 增量补洞。

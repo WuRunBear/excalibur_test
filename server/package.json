@@ -16,7 +16,8 @@
     "@colyseus/sdk": "^0.17.42",
     "diff": "^8.0.0",
     "express": "^5.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@tsconfig/node22": "^22.0.0",

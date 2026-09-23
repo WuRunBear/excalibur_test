@@ -8,6 +8,7 @@ import {
   IconListBox,
   IconMap,
   IconSave,
+  IconSwitch,
 } from '@pixelium/web-vue/icon-pa/es'
 
 const router = createRouter({
@@ -45,6 +46,13 @@ const router = createRouter({
           path: '/dashboard',
           component: () => import('views/DashboardView.vue'),
           meta: { title: '仪表盘', icon: IconDashboard },
+        },
+        {
+          name: 'Games',
+          // T2.10：游戏管理（注册 / 切换 / 导入 / 移除）
+          path: '/games',
+          component: () => import('views/GamesView.vue'),
+          meta: { title: '游戏管理', icon: IconSwitch },
         },
         {
           name: 'Workspace',

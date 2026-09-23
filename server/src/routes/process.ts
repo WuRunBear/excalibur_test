@@ -1,5 +1,8 @@
 /**
- * 进程管理 REST 路由（S1-C，挂载于 /api/instances）。
+ * 进程管理 REST 路由（S1-C，挂载于 /api/instances 与 /api/games/:gameId）。
+ *
+ * T2.7：服务引用从 compat 单例改为 servicesForRequest(req) per-game 容器
+ * （req.gameId 由挂载层注入：scoped=URL :gameId，legacy=isDefault 游戏）。
  *
  * 统一响应结构：
  * - 成功：{ code: 0, message: 'ok', detail }
@@ -9,10 +12,9 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { getInstanceManager, isInstanceRole } from '../services/instanceManager.js'
-import { logStream } from '../services/logStream.js'
+import { isInstanceRole } from '../services/instanceManager.js'
 import type { InstanceRole } from '../types.js'
-import { fail, handleError, ok } from './helpers.js'
+import { fail, handleError, ok, servicesForRequest } from './helpers.js'
 
 export const processRouter = Router()
 
@@ -25,9 +27,10 @@ function checkRole(res: Response, role: string): role is InstanceRole {
 
 /** GET /api/instances → 双角色状态快照。 */
 processRouter.get('/', (_req: Request, res: Response) => {
+  const { instances } = servicesForRequest(_req)
   ok(res, {
-    official: getInstanceManager('official').snapshot,
-    preview: getInstanceManager('preview').snapshot,
+    official: instances.official.snapshot,
+    preview: instances.preview.snapshot,
   })
 })
 
@@ -35,7 +38,7 @@ processRouter.get('/', (_req: Request, res: Response) => {
 processRouter.get('/:role', (req: Request<{ role: string }>, res: Response) => {
   const role = req.params.role
   if (!checkRole(res, role)) return
-  ok(res, getInstanceManager(role).snapshot)
+  ok(res, servicesForRequest(req).instances[role].snapshot)
 })
 
 /** POST /api/instances/:role/start → 启动实例。 */
@@ -43,7 +46,7 @@ processRouter.post('/:role/start', async (req: Request<{ role: string }>, res: R
   const role = req.params.role
   if (!checkRole(res, role)) return
   try {
-    ok(res, await getInstanceManager(role).start())
+    ok(res, await servicesForRequest(req).instances[role].start())
   } catch (err) {
     handleError(res, err)
   }
@@ -54,7 +57,7 @@ processRouter.post('/:role/stop', async (req: Request<{ role: string }>, res: Re
   const role = req.params.role
   if (!checkRole(res, role)) return
   try {
-    ok(res, await getInstanceManager(role).stop())
+    ok(res, await servicesForRequest(req).instances[role].stop())
   } catch (err) {
     handleError(res, err)
   }
@@ -65,7 +68,7 @@ processRouter.post('/:role/restart', async (req: Request<{ role: string }>, res:
   const role = req.params.role
   if (!checkRole(res, role)) return
   try {
-    ok(res, await getInstanceManager(role).restart())
+    ok(res, await servicesForRequest(req).instances[role].restart())
   } catch (err) {
     handleError(res, err)
   }
@@ -77,5 +80,5 @@ processRouter.get('/:role/logs', (req: Request<{ role: string }>, res: Response)
   if (!checkRole(res, role)) return
   const raw = Number(req.query.lines)
   const lines = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 200
-  ok(res, { role, lines: logStream.getRecent(role, lines) })
+  ok(res, { role, lines: servicesForRequest(req).log.getRecent(role, lines) })
 })

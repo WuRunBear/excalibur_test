@@ -11,12 +11,16 @@ const mocks = vi.hoisted(() => ({
   messageWarning: vi.fn(),
 }))
 
-vi.mock('@/api/admin', () => ({
-  fetchSaves: mocks.fetchSaves,
-  fetchSaveDetail: mocks.fetchSaveDetail,
-  deleteSave: mocks.deleteSave,
-  restoreSave: mocks.restoreSave,
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...original,
+    fetchSaves: mocks.fetchSaves,
+    fetchSaveDetail: mocks.fetchSaveDetail,
+    deleteSave: mocks.deleteSave,
+    restoreSave: mocks.restoreSave,
+  }
+})
 
 vi.mock('element-plus', () => ({
   ElMessage: {

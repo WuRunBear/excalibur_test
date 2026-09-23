@@ -15,25 +15,30 @@ const mocks = vi.hoisted(() => ({
   messageError: vi.fn(),
 }))
 
-vi.mock('@/api/admin', () => ({
-  AdminApiError: class AdminApiError extends Error {
-    readonly code: number
-    constructor(message: string, code = 1) {
-      super(message)
-      this.name = 'AdminApiError'
-      this.code = code
-    }
-  },
-  INSTANCE_ROLE_LABELS: { official: '正式实例', preview: '预览实例' },
-  fetchInstances: mocks.fetchInstances,
-  startInstance: mocks.startInstance,
-  stopInstance: mocks.stopInstance,
-  restartInstance: mocks.restartInstance,
-  subscribeAdminChannel: (_channel: string, handlers: NonNullable<typeof mocks.handlers>) => {
-    mocks.handlers = handlers
-    return { close: vi.fn() }
-  },
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...original,
+    AdminApiError: class AdminApiError extends Error {
+      readonly code: number
+      constructor(message: string, code = 1) {
+        super(message)
+        this.name = 'AdminApiError'
+        this.code = code
+      }
+    },
+    INSTANCE_ROLE_LABELS: { official: '正式实例', preview: '预览实例' },
+    channelInstanceState: () => 'instance:state:gst',
+    fetchInstances: mocks.fetchInstances,
+    startInstance: mocks.startInstance,
+    stopInstance: mocks.stopInstance,
+    restartInstance: mocks.restartInstance,
+    subscribeAdminChannel: (_channel: string, handlers: NonNullable<typeof mocks.handlers>) => {
+      mocks.handlers = handlers
+      return { close: vi.fn() }
+    },
+  }
+})
 
 vi.mock('element-plus', () => ({
   ElMessage: { success: mocks.messageSuccess, error: mocks.messageError },

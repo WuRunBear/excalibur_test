@@ -12,15 +12,14 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { mapService } from '../services/mapService.js'
-import { handleError, ok } from './helpers.js'
+import { handleError, ok, servicesForRequest } from './helpers.js'
 
 export const mapsRouter = Router()
 
 /** GET /api/maps?source= → 列表。 */
 mapsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    ok(res, await mapService.listMaps(req.query.source))
+    ok(res, await servicesForRequest(req).map.listMaps(req.query.source))
   } catch (err) {
     handleError(res, err)
   }
@@ -29,7 +28,7 @@ mapsRouter.get('/', async (req: Request, res: Response) => {
 /** GET /api/maps/entity-rules?source= → 演化规则原样 JSON（需在 :key 路由前注册）。 */
 mapsRouter.get('/entity-rules', async (req: Request, res: Response) => {
   try {
-    ok(res, await mapService.entityRules(req.query.source))
+    ok(res, await servicesForRequest(req).map.entityRules(req.query.source))
   } catch (err) {
     handleError(res, err)
   }
@@ -38,7 +37,7 @@ mapsRouter.get('/entity-rules', async (req: Request, res: Response) => {
 /** POST /api/maps/:key/geometry {source} → 几何快照。 */
 mapsRouter.post('/:key/geometry', async (req: Request<{ key: string }>, res: Response) => {
   try {
-    ok(res, await mapService.geometry(req.params.key, req.body?.source))
+    ok(res, await servicesForRequest(req).map.geometry(req.params.key, req.body?.source))
   } catch (err) {
     handleError(res, err)
   }
@@ -48,7 +47,7 @@ mapsRouter.post('/:key/geometry', async (req: Request<{ key: string }>, res: Res
 mapsRouter.get('/:key/export', async (req: Request<{ key: string }>, res: Response) => {
   let dir: string | null = null
   try {
-    const out = await mapService.exportMap(
+    const out = await servicesForRequest(req).map.exportMap(
       req.params.key,
       req.query.source,
       typeof req.query.format === 'string' ? req.query.format : undefined,

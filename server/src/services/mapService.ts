@@ -12,15 +12,17 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import { sidecar } from '../sidecar/client.js'
+import { sidecarManager } from '../sidecar/manager.js'
+import type { SidecarClient } from '../sidecar/client.js'
 import { sidecarCall } from '../sidecar/errors.js'
 import type {
   MapGenerationConfig,
   SerializedMapGeometry,
   TilePalette,
 } from '../sidecar/protocol.js'
-import { gameConfigsDir } from '../config.js'
-import { WorkspaceError, workspaceService } from './workspaceService.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { toHolder, WorkspaceError, workspaceService, type WorkspaceService } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
 import type {
   EntityRulesPayload,
   MapSource,
@@ -47,7 +49,32 @@ function normalizeSource(input: unknown): MapSource {
  * configErrorMessage 参数定制，保持原 buildGeometry 422 语义与文案格式。
  */
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface MapServiceOptions {
+  /** 游戏上下文（或容器 contextHolder）。 */
+  context: GameContext | ContextHolder
+  /** 同一容器的 per-game 工作区服务（workspace 源的活动工作区解析）。 */
+  workspace: Pick<WorkspaceService, 'requireActiveGameDir'>
+  /** sidecar client 解析器（测试注入 stub 用）；缺省经 sidecarManager.forGame(gameId)。 */
+  sidecar?: () => SidecarClient
+}
+
 export class MapService {
+  private readonly holder: ContextHolder
+  private readonly workspace: MapServiceOptions['workspace']
+  private readonly resolveSidecar: () => SidecarClient
+
+  constructor(options: MapServiceOptions) {
+    this.holder = toHolder(options.context)
+    this.workspace = options.workspace
+    this.resolveSidecar = options.sidecar ?? (() => sidecarManager.forGame(this.ctx.gameId))
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
+
   /** 双源 registry 读取（保留声明顺序）；缺文件 → 404。 */
   async listMaps(sourceInput: unknown): Promise<MapsPayload> {
     const source = normalizeSource(sourceInput)
@@ -100,7 +127,7 @@ export class MapService {
     const config = await this.mapConfig(source, key)
     // 生成失败语义与 buildGeometry 一致（原现状：buildGeometry 先行 422）
     const artifacts = await sidecarCall(
-      sidecar.exportMapArtifacts({ config, ...(palette ? { palette } : {}) }),
+      this.resolveSidecar().exportMapArtifacts({ config, ...(palette ? { palette } : {}) }),
       (message) => `地图生成失败：${message}`,
     )
     return {
@@ -182,15 +209,15 @@ export class MapService {
     // 管道引用未注册积木 / 出口结构硬错误 → 配置问题（driver game_config_error），
     // 422 文案格式由 sidecarCall 的 configErrorMessage 定制保持不变。
     return sidecarCall(
-      sidecar.buildMapGeometry({ config }),
+      this.resolveSidecar().buildMapGeometry({ config }),
       (message) => `地图生成失败：${message}`,
     )
   }
 
   /** 双源根目录（registry/entity-rules 所在的 game 目录）。 */
   private async rootDirFor(source: MapSource): Promise<string> {
-    if (source === 'official') return gameConfigsDir
-    return workspaceService.requireActiveGameDir().then((r) => r.gameDir)
+    if (source === 'official') return this.ctx.gameConfigsDir
+    return this.workspace.requireActiveGameDir().then((r) => r.gameDir)
   }
 
   private async readRegistry(source: MapSource): Promise<RegistryFile> {
@@ -266,5 +293,9 @@ export class MapService {
   }
 }
 
-/** 地图服务单例。 */
-export const mapService = new MapService()
+/**
+ * 地图服务单例（compat 壳，T2.4）：绑定 defaultGameContext（≡ forGame('gst') 语义）
+ * + workspaceService 单例；sidecar 缺省经 sidecarManager.forGame('gst') 解析。
+ * 路由层改接 servicesFor 是 T2.7 的事，本单例保证过渡期行为连续。
+ */
+export const mapService = new MapService({ context: defaultGameContext, workspace: workspaceService })

@@ -1,7 +1,7 @@
 /**
  * 地图几何 → Canvas 2D 渲染的纯函数模块（S5-B）。
  *
- * - normalizeGeometry：把 /api/maps/:key/geometry 的快照归一化为渲染视图
+ * - normalizeGeometry：把 games/:gameId/maps/:key/geometry 的快照归一化为渲染视图
  *   （扁平数组为主路径，兼容分块 base64 形态——复用 maprender/mapCodec 的重组逻辑）；
  * - computeLayout：画布坐标映射（等比 tile，居中，越界安全）；
  * - drawGeometry：walkable 底色 + tiles 纹理 + 网格线 + region 着色/边界 + 规则点位；

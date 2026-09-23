@@ -4,12 +4,13 @@
  * 双 scope（official/preview）清单、详情抽屉、删除 / 恢复；
  * 删除与恢复在 store 内轻提示并刷新清单，confirm 由视图负责。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 
 import { deleteSave, fetchSaveDetail, fetchSaves, restoreSave } from '@/api/admin'
 import type { SaveDetailPayload, SaveEntry, SaveScope } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback
@@ -66,6 +67,20 @@ export const useSaveStore = defineStore('admin-save', () => {
     detailVisible.value = false
     detail.value = null
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 清空清单与详情抽屉；
+  // 存档视图重挂载后 load 以新 gameId 重取。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      dir.value = null
+      saves.value = []
+      lastError.value = null
+      loadedFor.value = null
+      closeDetail()
+    },
+  )
 
   // -- 删除 / 恢复 ----------------------------------------------------------
   async function remove(file: string): Promise<boolean> {

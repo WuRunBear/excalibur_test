@@ -20,20 +20,24 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import { defaultGameContext } from '../gameContext.js'
-import { sidecar } from '../sidecar/client.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { sidecarManager } from '../sidecar/manager.js'
+import type { SidecarClient } from '../sidecar/client.js'
 import { sidecarCall } from '../sidecar/errors.js'
-import { WorkspaceError, workspaceService } from './workspaceService.js'
+import { toHolder, WorkspaceError, workspaceService, type WorkspaceService } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
 import type { ConfigTreeNode, ConfigValidationError, WorkspaceChange } from '../types.js'
 
 /**
  * relPath（'/' 分隔，相对工作区 game/）→ schemaKind；不在路由数据内 → null。
- * 路由数据出自 gameContext.schemaRoutes（pattern 完整锚定正则源串；kind='*'
+ * 路由数据出自 context.schemaRoutes（pattern 完整锚定正则源串；kind='*'
  * 语义表示 kind=命中文件的文件名，去 .json 后缀，即规则名）。
+ * context 缺省 defaultGameContext（compat 壳语义：单游戏时期的全局路由表）；
+ * per-game 服务实例传各自 context（T2.4）。
  */
-export function routeSchemaKind(relPath: string): string | null {
+export function routeSchemaKind(relPath: string, context: GameContext = defaultGameContext): string | null {
   const norm = relPath.split(path.sep).join('/')
-  for (const route of defaultGameContext.schemaRoutes) {
+  for (const route of context.schemaRoutes) {
     if (!new RegExp(route.pattern).test(norm)) continue
     if (route.kind === '*') {
       const file = norm.slice(norm.lastIndexOf('/') + 1)
@@ -71,14 +75,42 @@ function resolveWithin(gameDir: string, relInput: string): string {
   return abs
 }
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface ConfigServiceOptions {
+  /** 游戏上下文（或容器 contextHolder）。 */
+  context: GameContext | ContextHolder
+  /** 同一容器的 per-game 工作区服务（活动工作区解析）。 */
+  workspace: Pick<WorkspaceService, 'requireActiveGameDir'>
+  /**
+   * sidecar client 解析器（测试注入 stub 用）；缺省经 sidecarManager.forGame(gameId)
+   * 按调用时点解析（指纹变化/重建后自动拿到新 client，不再持有过期实例）。
+   */
+  sidecar?: () => SidecarClient
+}
+
 export class ConfigService {
+  private readonly holder: ContextHolder
+  private readonly workspace: ConfigServiceOptions['workspace']
+  private readonly resolveSidecar: () => SidecarClient
+
+  constructor(options: ConfigServiceOptions) {
+    this.holder = toHolder(options.context)
+    this.workspace = options.workspace
+    this.resolveSidecar = options.sidecar ?? (() => sidecarManager.forGame(this.ctx.gameId))
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
+
   // ------------------------------------------------------------------
   // 树 / 读
   // ------------------------------------------------------------------
 
   /** 活动工作区 game/ 的配置文件树（目录在前、同级字典序）。 */
   async tree(): Promise<{ tree: ConfigTreeNode }> {
-    const { gameDir } = await workspaceService.requireActiveGameDir()
+    const { gameDir } = await this.workspace.requireActiveGameDir()
     if (!fs.existsSync(gameDir)) {
       throw new WorkspaceError(404, '活动工作区缺少 game 目录（镜像损坏）')
     }
@@ -95,7 +127,7 @@ export class ConfigService {
   /** 读文件原文 + schemaKind；不存在抛 404。 */
   async readFile(relInput: string): Promise<{ path: string; content: string; schemaKind: string | null }> {
     const rel = normalizeRel(this.requirePath(relInput))
-    const { gameDir } = await workspaceService.requireActiveGameDir()
+    const { gameDir } = await this.workspace.requireActiveGameDir()
     const abs = resolveWithin(gameDir, rel)
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
       throw new WorkspaceError(404, `文件不存在：${rel}`)
@@ -103,7 +135,7 @@ export class ConfigService {
     return {
       path: rel,
       content: await fsp.readFile(abs, 'utf8'),
-      schemaKind: routeSchemaKind(rel),
+      schemaKind: routeSchemaKind(rel, this.ctx),
     }
   }
 
@@ -120,7 +152,7 @@ export class ConfigService {
       throw new WorkspaceError(400, 'content 必须为字符串')
     }
     const rel = normalizeRel(this.requirePath(relInput))
-    const { gameDir } = await workspaceService.requireActiveGameDir()
+    const { gameDir } = await this.workspace.requireActiveGameDir()
     const abs = resolveWithin(gameDir, rel)
     if (abs === gameDir) {
       throw new WorkspaceError(400, '路径必须指向文件而非目录')
@@ -135,9 +167,9 @@ export class ConfigService {
         throw new WorkspaceError(400, `JSON 语法错误：${syntaxMessage(err as Error, content)}`)
       }
       // 2) schema 校验（sidecar RPC；路由表未命中的文件视为通过）
-      const kind = routeSchemaKind(rel)
+      const kind = routeSchemaKind(rel, this.ctx)
       if (kind) {
-        const result = await sidecarCall(sidecar.validateFile({ kind, data: parsed }))
+        const result = await sidecarCall(this.resolveSidecar().validateFile({ kind, data: parsed }))
         if (!result.valid) {
           throw new ValidationFailedError(this.mapZodIssues(result.issues, content))
         }
@@ -158,7 +190,7 @@ export class ConfigService {
       throw new WorkspaceError(400, 'content 必须为字符串')
     }
     const rel = normalizeRel(this.requirePath(relInput))
-    const kind = routeSchemaKind(rel)
+    const kind = routeSchemaKind(rel, this.ctx)
     if (!kind) return { schemaKind: null, valid: true, errors: [] }
 
     let parsed: unknown
@@ -173,7 +205,7 @@ export class ConfigService {
         ],
       }
     }
-    const result = await sidecarCall(sidecar.validateFile({ kind, data: parsed }))
+    const result = await sidecarCall(this.resolveSidecar().validateFile({ kind, data: parsed }))
     if (result.valid) return { schemaKind: kind, valid: true, errors: [] }
     return {
       schemaKind: kind,
@@ -184,9 +216,9 @@ export class ConfigService {
 
   /** 整体校验（Spike-2 核心函数，经 sidecar RPC）：活动工作区 game.json 绝对路径。 */
   async validateAll(): Promise<{ valid: boolean; message: string }> {
-    const { gameDir } = await workspaceService.requireActiveGameDir()
+    const { gameDir } = await this.workspace.requireActiveGameDir()
     const result = await sidecarCall(
-      sidecar.validateWhole({ gameJsonPath: path.join(gameDir, 'game.json') }),
+      this.resolveSidecar().validateWhole({ gameJsonPath: path.join(gameDir, 'game.json') }),
     )
     return { valid: result.ok, message: result.message }
   }
@@ -284,8 +316,14 @@ function syntaxMessage(err: Error, content: string): string {
   return raw
 }
 
-/** 配置服务单例。 */
-export const configService = new ConfigService()
+/**
+ * 配置服务单例（compat 壳，T2.4）。
+ *
+ * 绑定 defaultGameContext（≡ forGame('gst') 语义）+ workspaceService 单例；
+ * sidecar 缺省经 sidecarManager.forGame('gst') 解析。路由层改接 servicesFor
+ * 是 T2.7 的事，本单例保证过渡期行为连续。
+ */
+export const configService = new ConfigService({ context: defaultGameContext, workspace: workspaceService })
 
 /** 供路由使用的类型再导出（避免路由直接依赖服务内部）。 */
 export type { WorkspaceChange }

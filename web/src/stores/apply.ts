@@ -7,7 +7,7 @@
  * - backups：备份列表 + 回滚（成功后同样联动刷新）。
  * 提示策略：plan/execute 失败由视图按 outcome 渲染（精确呈现），rollback 在 store 内轻提示。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 
@@ -23,6 +23,7 @@ import {
 } from '@/api/admin'
 import type { ApplyInvalidFile, ApplyPlanFile, ApplyReceipt, BackupMeta } from '@/api/admin'
 import { useConfigContextStore } from '@/stores/configContext'
+import { useGamesStore } from '@/stores/games'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 export type ExecuteOutcome =
@@ -181,6 +182,21 @@ export const useApplyStore = defineStore('admin-apply', () => {
       return false
     }
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 清空落盘计划 / 备份列表 / 回执；
+  // 落盘与备份面板随视图重挂载后以新 gameId 重取。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      resetPlan()
+      receipt.value = null
+      backups.value = []
+      backupsLoading.value = false
+      backupsError.value = null
+      backupsLoaded.value = false
+    },
+  )
 
   return {
     plan,

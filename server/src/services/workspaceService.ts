@@ -1,22 +1,44 @@
 /**
  * 工作区服务（S2-A）。
  *
- * 存储（server/workspaces/ 已被根 .gitignore 覆盖）：
- * - <workspacesDir>/<id>/game/**          本体 game/ 的全量镜像（fs.cp 递归复制）
- * - <workspacesDir>/<id>/.base-manifest.json  基线清单 { files: {relPath: sha256}, fingerprint }
- * - <workspacesDir>/<id>/meta.json        { id, name, createdAt }
- * - <workspacesDir>/.active-workspace.json 持久化活动工作区 { id }（tsx watch 重启不丢）
+ * 存储（server/workspaces/ 已被根 .gitignore 覆盖；T2.4 起**按游戏命名空间**）：
+ * - <workspacesDir>/<gameId>/<id>/game/**    本体 game/ 的全量镜像（fs.cp 递归复制）
+ * - <workspacesDir>/<gameId>/<id>/.base-manifest.json  基线清单 { files: {relPath: sha256}, fingerprint }
+ * - <workspacesDir>/<gameId>/<id>/meta.json  { id, name, createdAt }
+ * - <workspacesDir>/<gameId>/.active-workspace.json    持久化活动工作区（tsx watch 重启不丢）
+ *
+ * 活动工作区文件 v2 格式（T2.4/T2.6）：{ version: 2, gameId, id }。
+ * **只认 v2**：读到 v1（{ id }）→ fail-fast 报错并提示运行目录迁移脚本
+ * （scripts/migrate-namespaces.mjs，T2.6）——故意不做静默兼容（规格 T2.6 第 5 步）。
  *
  * fingerprint = 对排序后 "relPath:hash\n" 串的 sha256 前 16 位（relPath 相对 game/，
  * '/' 分隔）。id 用 crypto.randomUUID()。
+ *
+ * T2.4 per-game 实例化：构造器收 context（contextHolder 可选，services/index.ts
+ * 的容器用它做 context 热更新）；workspacesRoot 可注入（测试用 /tmp，缺省
+ * config.workspacesDir），per-game 目录 = <workspacesRoot>/<gameId>。
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import { gameConfigsDir, workspacesDir } from '../config.js'
+import { workspacesDir as defaultWorkspacesRoot } from '../config.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import type { ContextHolder } from './index.js'
 import type { WorkspaceChange, WorkspaceMeta } from '../types.js'
+
+/**
+ * GameContext | ContextHolder → ContextHolder（各服务构造器共用的规整助手）。
+ * 容器（services/index.ts）传 holder 实现 context 热更新；单例/直构传裸 context。
+ */
+export function toHolder(context: GameContext | ContextHolder): ContextHolder {
+  return isHolder(context) ? context : { current: context }
+}
+
+function isHolder(value: GameContext | ContextHolder): value is ContextHolder {
+  return typeof value === 'object' && value !== null && 'current' in value
+}
 
 /** 服务层可预期的错误（REST 层映射为对应 HTTP 状态码；可选 detail 随响应透出）。 */
 export class WorkspaceError extends Error {
@@ -34,6 +56,13 @@ export class WorkspaceError extends Error {
 const BASE_MANIFEST_FILE = '.base-manifest.json'
 const META_FILE = 'meta.json'
 const ACTIVE_FILE = '.active-workspace.json'
+
+/** 活动工作区文件 v2 格式（T2.4；迁移脚本 T2.6 负责把 v1 升级到这里）。 */
+interface ActiveWorkspaceFileV2 {
+  version: 2
+  gameId: string
+  id: string
+}
 
 interface BaseManifest {
   files: Record<string, string>
@@ -55,7 +84,31 @@ async function sha256File(filePath: string): Promise<string> {
   return crypto.createHash('sha256').update(content).digest('hex')
 }
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface WorkspaceServiceOptions {
+  /** 游戏上下文（或 services/index.ts 容器的 contextHolder，支持热更新）。 */
+  context: GameContext | ContextHolder
+  /** 工作区根目录（per-game 目录 = <root>/<gameId>）；缺省 config.workspacesDir。 */
+  workspacesRoot?: string
+}
+
 export class WorkspaceService {
+  private readonly holder: ContextHolder
+  /** per-game 工作区目录（<workspacesRoot>/<gameId>）。 */
+  private readonly workspacesDir: string
+  private readonly workspacesRoot: string
+
+  constructor(options: WorkspaceServiceOptions) {
+    this.holder = toHolder(options.context)
+    this.workspacesRoot = options.workspacesRoot ?? defaultWorkspacesRoot
+    this.workspacesDir = path.join(this.workspacesRoot, this.ctx.gameId)
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
+
   // ------------------------------------------------------------------
   // 查询
   // ------------------------------------------------------------------
@@ -64,7 +117,7 @@ export class WorkspaceService {
   async list(): Promise<{ activeId: string | null; items: WorkspaceMeta[] }> {
     await this.ensureRoot()
     const activeId = await this.readActiveId()
-    const entries = await fsp.readdir(workspacesDir, { withFileTypes: true })
+    const entries = await fsp.readdir(this.workspacesDir, { withFileTypes: true })
     const items: WorkspaceMeta[] = []
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith('.')) continue
@@ -121,7 +174,7 @@ export class WorkspaceService {
 
   /** 活动工作区（当前镜像）vs 本体 game/ 的逐文件对比（S4 落盘 diff 的清单级基础）。 */
   async diffAgainstSource(): Promise<WorkspaceChange[]> {
-    const source = await this.describeDir(gameConfigsDir)
+    const source = await this.describeDir(this.ctx.gameConfigsDir)
     const activeId = await this.getActiveId()
     if (!activeId) return []
     try {
@@ -181,12 +234,13 @@ export class WorkspaceService {
     if (trimmed.length > 64) throw new WorkspaceError(400, 'name 过长（≤64 字符）')
 
     await this.ensureRoot()
+    const gameConfigsDir = this.ctx.gameConfigsDir
     if (!fs.existsSync(gameConfigsDir)) {
       throw new WorkspaceError(500, `本体配置目录不存在：${gameConfigsDir}`)
     }
 
     const id = crypto.randomUUID()
-    const wsDir = path.join(workspacesDir, id)
+    const wsDir = path.join(this.workspacesDir, id)
     const gameDir = path.join(wsDir, 'game')
     await fsp.mkdir(wsDir, { recursive: true })
     await fsp.cp(gameConfigsDir, gameDir, { recursive: true })
@@ -260,7 +314,7 @@ export class WorkspaceService {
   // ------------------------------------------------------------------
 
   private async ensureRoot(): Promise<void> {
-    await fsp.mkdir(workspacesDir, { recursive: true })
+    await fsp.mkdir(this.workspacesDir, { recursive: true })
   }
 
   private wsPath(id: string): string {
@@ -268,7 +322,7 @@ export class WorkspaceService {
     if (!/^[A-Za-z0-9_-]+$/.test(id)) {
       throw new WorkspaceError(400, `非法工作区 id：${id}`)
     }
-    return path.join(workspacesDir, id)
+    return path.join(this.workspacesDir, id)
   }
 
   private mustExist(id: string): string {
@@ -279,19 +333,51 @@ export class WorkspaceService {
     return wsDir
   }
 
+  /**
+   * 读活动工作区 id（v2 格式）。
+   * - 文件不存在 / JSON 损坏 → null（与改前容错语义一致）；
+   * - **v1 旧格式（无 version:2）或 gameId 不匹配 → 抛错并提示跑迁移脚本**
+   *   （规格 T2.6 第 5 步：故意 fail-fast，不做静默兼容；REST → 500）。
+   */
   private async readActiveId(): Promise<string | null> {
+    let raw: string
     try {
-      const raw = await fsp.readFile(path.join(workspacesDir, ACTIVE_FILE), 'utf8')
-      const parsed = JSON.parse(raw) as { id?: string | null }
-      return typeof parsed.id === 'string' ? parsed.id : null
+      raw = await fsp.readFile(path.join(this.workspacesDir, ACTIVE_FILE), 'utf8')
     } catch {
       return null
     }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return null // 损坏文件：维持改前的容错（视为无活动工作区）
+    }
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      (parsed as { version?: unknown }).version !== 2
+    ) {
+      throw new WorkspaceError(
+        500,
+        '活动工作区文件为 v1 旧格式（缺 version:2）——请先运行目录迁移脚本 ' +
+          'scripts/migrate-namespaces.mjs 将存量工作区迁入 per-game 命名空间（T2.6），新版服务只认 v2 格式',
+      )
+    }
+    const v2 = parsed as Partial<ActiveWorkspaceFileV2>
+    if (v2.gameId !== this.ctx.gameId || typeof v2.id !== 'string') {
+      throw new WorkspaceError(
+        500,
+        `活动工作区文件 gameId 不匹配（文件 ${String(v2.gameId)} ≠ 当前 ${this.ctx.gameId}）或 id 字段缺失——请检查 ${ACTIVE_FILE}`,
+      )
+    }
+    return v2.id === '' ? null : v2.id
   }
 
+  /** 写活动工作区（v2 格式：{ version: 2, gameId, id }）。 */
   private async setActiveId(id: string | null): Promise<void> {
     await this.ensureRoot()
-    await fsp.writeFile(path.join(workspacesDir, ACTIVE_FILE), JSON.stringify({ id }), 'utf8')
+    const file: ActiveWorkspaceFileV2 = { version: 2, gameId: this.ctx.gameId, id: id ?? '' }
+    await fsp.writeFile(path.join(this.workspacesDir, ACTIVE_FILE), JSON.stringify(file), 'utf8')
   }
 
   private async readMeta(wsDir: string): Promise<MetaFile> {
@@ -397,5 +483,12 @@ function diffMaps(base: Record<string, string>, current: Record<string, string>)
   return changes
 }
 
-/** 工作区服务单例。 */
-export const workspaceService = new WorkspaceService()
+/**
+ * 工作区服务单例（compat 壳，T2.4）。
+ *
+ * 绑定 defaultGameContext（≡ forGame('gst') 的语义等价物，不依赖 registry 播种，
+ * 保证模块加载零风险）；workspacesRoot 缺省 → per-game 目录为
+ * `<repoRoot>/server/workspaces/gst`（存量数据仍在旧扁平位置，目录迁移是 T2.6）。
+ * 路由层改接 servicesFor(gameId) 是 T2.7 的事，本单例保证过渡期行为连续。
+ */
+export const workspaceService = new WorkspaceService({ context: defaultGameContext })

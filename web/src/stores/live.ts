@@ -2,15 +2,21 @@
  * 游戏观察采样 store（S7-B）。
  *
  * - 持有 official / preview 双角色的运行采样环形缓冲（tick 速率 / 实体总数）；
- * - 订阅 WS live:{role} 频道接收每秒增量（断线指数退避重连由 api 层封装）；
+ * - 订阅 WS live:{gameId}:{role} 频道接收每秒增量（断线指数退避重连由 api 层封装）；
  * - 进页先 REST 回填最近窗口，回填完成前到达的 WS 消息先进缓冲，保证「先历史后增量」；
  * - WS 断线重连成功后自动补拉，按 ts 去重只追加缺失段，图表不重建实例增量更新。
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 
-import { fetchLiveSamples, isLiveSampleMessage, subscribeAdminChannel } from '@/api/admin'
-import type { AdminChannel, AdminSocketHandle, InstanceRole, LiveSample } from '@/api/admin'
+import {
+  channelLive,
+  fetchLiveSamples,
+  isLiveSampleMessage,
+  subscribeAdminChannel,
+} from '@/api/admin'
+import type { AdminSocketHandle, InstanceRole, LiveSample } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 
 /** WS 通道状态：连接中 / 实时推送 / 已断开（重连中）。 */
 export type LiveWsState = 'connecting' | 'online' | 'offline'
@@ -80,8 +86,7 @@ export const useLiveStore = defineStore('admin-live', () => {
   /** 建立 WS live 流并做首次回填（幂等，按角色）。 */
   function ensureRole(role: InstanceRole): void {
     if (socketHandles.value[role]) return
-    const channel: AdminChannel = `live:${role}`
-    socketHandles.value[role] = subscribeAdminChannel(channel, {
+    socketHandles.value[role] = subscribeAdminChannel(channelLive(role), {
       onMessage: (payload) => {
         if (!isLiveSampleMessage(payload) || payload.role !== role) return
         const sample: LiveSample = {
@@ -129,6 +134,16 @@ export const useLiveStore = defineStore('admin-live', () => {
       wsState.value[role] = 'connecting'
     }
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 释放旧 gameId 的 WS 频道与采样缓冲；
+  // LiveTrendPanel 随视图重挂载后 ensureRole 以新 gameId 重连并回填。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      dispose()
+    },
+  )
 
   return {
     samples,

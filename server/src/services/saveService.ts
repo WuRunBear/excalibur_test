@@ -12,8 +12,9 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import { defaultGameContext } from '../gameContext.js'
-import { WorkspaceError, workspaceService } from './workspaceService.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { toHolder, WorkspaceError, workspaceService, type WorkspaceService } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
 import type {
   SaveDetailPayload,
   SaveEntry,
@@ -41,7 +42,28 @@ function normalizeScope(input: unknown): SaveScope {
   throw new WorkspaceError(400, `非法 scope "${String(input)}"（expected "official" | "preview"）`)
 }
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface SaveServiceOptions {
+  /** 游戏上下文（或容器 contextHolder）：official 存档目录 / server.json 读取出处。 */
+  context: GameContext | ContextHolder
+  /** 同一容器的 per-game 工作区服务（preview 域存档目录解析）。 */
+  workspace: Pick<WorkspaceService, 'getPreviewSavesDir'>
+}
+
 export class SaveService {
+  private readonly holder: ContextHolder
+  private readonly workspace: SaveServiceOptions['workspace']
+
+  constructor(options: SaveServiceOptions) {
+    this.holder = toHolder(options.context)
+    this.workspace = options.workspace
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
+
   /** 列出存档（.json 文件，summary 尽力解析）。 */
   async list(scopeInput: unknown): Promise<SavesPayload> {
     const scope = normalizeScope(scopeInput)
@@ -133,9 +155,11 @@ export class SaveService {
 
   private async dirFor(scope: SaveScope): Promise<string> {
     if (scope === 'official') {
-      return defaultGameContext.savesDir
+      // official 域锚本体的 savesDir（per-game context；目录不存在时 list 容错为空、
+      // restore 写盘前 dirFor 不建目录——与改前语义一致）
+      return this.ctx.savesDir
     }
-    return workspaceService.getPreviewSavesDir()
+    return this.workspace.getPreviewSavesDir()
   }
 
   /** 文件名白名单 + 目录内规约（防穿越）。返回规整后的文件名与绝对路径。 */
@@ -150,16 +174,19 @@ export class SaveService {
     return { name: file, abs }
   }
 
-  /** 活跃存档 saveId：本体 rules/server.json 的 saveId（缺省 'main'，容错）。 */
+  /**
+   * 活跃存档 saveId：本体 rules/server.json 的 saveId（缺省 'main'，容错）。
+   * server.json 读不到/解析失败 → 降级用 'main'，不报错（T2.4 语义保持）。
+   */
   private async activeSaveId(): Promise<string> {
     try {
-      const raw = await fsp.readFile(path.join(defaultGameContext.gameConfigsDir, 'rules', 'server.json'), 'utf8')
+      const raw = await fsp.readFile(path.join(this.ctx.gameConfigsDir, 'rules', 'server.json'), 'utf8')
       const parsed = JSON.parse(raw) as { saveId?: unknown }
       if (typeof parsed.saveId === 'string' && /^[A-Za-z0-9_-]+$/.test(parsed.saveId)) {
         return parsed.saveId
       }
     } catch {
-      // 缺文件/解析失败 → 缺省
+      // 缺文件/解析失败 → 缺省（降级展示，不报错）
     }
     return 'main'
   }
@@ -207,5 +234,8 @@ export class SaveService {
   }
 }
 
-/** 存档服务单例。 */
-export const saveService = new SaveService()
+/**
+ * 存档服务单例（compat 壳，T2.4）：绑定 defaultGameContext（≡ forGame('gst') 语义）
+ * + workspaceService 单例。路由层改接 servicesFor 是 T2.7 的事，本单例保证过渡期行为连续。
+ */
+export const saveService = new SaveService({ context: defaultGameContext, workspace: workspaceService })

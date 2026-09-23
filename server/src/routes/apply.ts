@@ -12,16 +12,15 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { applyService } from '../services/applyService.js'
-import { fail, handleError, ok } from './helpers.js'
+import { fail, handleError, ok, servicesForRequest } from './helpers.js'
 
 export const applyRouter = Router()
 export const backupsRouter = Router()
 
 /** POST /api/apply/plan → 落盘计划（含 diff/统计/文件级校验）。 */
-applyRouter.post('/plan', async (_req: Request, res: Response) => {
+applyRouter.post('/plan', async (req: Request, res: Response) => {
   try {
-    ok(res, await applyService.plan())
+    ok(res, await servicesForRequest(req).apply.plan())
   } catch (err) {
     handleError(res, err)
   }
@@ -35,16 +34,16 @@ applyRouter.post('/execute', async (req: Request, res: Response) => {
       fail(res, 400, 'paths 必须为非空字符串数组')
       return
     }
-    ok(res, await applyService.execute(paths))
+    ok(res, await servicesForRequest(req).apply.execute(paths))
   } catch (err) {
     handleError(res, err)
   }
 })
 
 /** GET /api/backups → 备份列表。 */
-backupsRouter.get('/', async (_req: Request, res: Response) => {
+backupsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    ok(res, await applyService.listBackups())
+    ok(res, await servicesForRequest(req).apply.listBackups())
   } catch (err) {
     handleError(res, err)
   }
@@ -53,7 +52,7 @@ backupsRouter.get('/', async (_req: Request, res: Response) => {
 /** POST /api/backups/:backupId/rollback → 回滚。 */
 backupsRouter.post('/:backupId/rollback', async (req: Request<{ backupId: string }>, res: Response) => {
   try {
-    ok(res, await applyService.rollback(req.params.backupId))
+    ok(res, await servicesForRequest(req).apply.rollback(req.params.backupId))
   } catch (err) {
     handleError(res, err)
   }

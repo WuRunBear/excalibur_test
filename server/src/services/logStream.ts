@@ -16,7 +16,9 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 
-import { defaultGameContext } from '../gameContext.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { toHolder } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
 import type { InstanceRole, LogMessage, LogSource, ProcessSource } from '../types.js'
 
 /** 环形缓冲容量。 */
@@ -62,10 +64,29 @@ type LogListener = (msg: LogMessage) => void
 
 const ROLES: readonly InstanceRole[] = ['official', 'preview']
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface LogStreamServiceOptions {
+  /** 游戏上下文（或容器 contextHolder）：gameLogsDir/gameLogFile 的出处。 */
+  context: GameContext | ContextHolder
+}
+
 /**
  * 日志流服务：文件 tail + 进程行 → 环形缓冲 → 订阅者（index.ts 接 wsHub 广播）。
+ * T2.4：每游戏一个实例，文件路径取自各自 context（每次 stat/open 时点读取，
+ * 容器 context 热更新自动生效）。
  */
 export class LogStreamService {
+  private readonly holder: ContextHolder
+
+  constructor(options: LogStreamServiceOptions) {
+    this.holder = toHolder(options.context)
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
+
   private readonly rings: Record<InstanceRole, RingBuffer> = {
     official: new RingBuffer(),
     preview: new RingBuffer(),
@@ -111,7 +132,7 @@ export class LogStreamService {
   /** 初始 offset：文件已存在则定位到末尾（只转发新行），不存在则从头等待。 */
   private async bootstrapOffset(): Promise<void> {
     try {
-      const st = await fsp.stat(defaultGameContext.gameLogFile)
+      const st = await fsp.stat(this.ctx.gameLogFile)
       this.fileOffset = st.isFile() ? st.size : 0
     } catch {
       this.fileOffset = 0
@@ -176,7 +197,7 @@ export class LogStreamService {
   private ensureWatcher(): void {
     if (this.watcher) return
     try {
-      this.watcher = fs.watch(defaultGameContext.gameLogsDir, { persistent: false }, (_event, filename) => {
+      this.watcher = fs.watch(this.ctx.gameLogsDir, { persistent: false }, (_event, filename) => {
         // filename 在部分平台为 null，无法区分时一律尝试 pump（幂等）。
         if (!filename || filename === 'game.log') void this.pump()
       })
@@ -199,7 +220,7 @@ export class LogStreamService {
     if (this.pumping) return
     this.pumping = true
     try {
-      const st = await fsp.stat(defaultGameContext.gameLogFile).catch(() => null)
+      const st = await fsp.stat(this.ctx.gameLogFile).catch(() => null)
       if (!st || !st.isFile()) {
         // 文件被移走 / 尚未创建：重置状态，等待下次事件（winston 重建文件）。
         this.fileOffset = 0
@@ -214,7 +235,7 @@ export class LogStreamService {
       if (st.size === this.fileOffset) return
 
       const length = st.size - this.fileOffset
-      const fh = await fsp.open(defaultGameContext.gameLogFile, 'r')
+      const fh = await fsp.open(this.ctx.gameLogFile, 'r')
       try {
         const buffer = Buffer.allocUnsafe(length)
         const { bytesRead } = await fh.read(buffer, 0, length, this.fileOffset)
@@ -235,5 +256,9 @@ export class LogStreamService {
   }
 }
 
-/** 日志流单例。 */
-export const logStream = new LogStreamService()
+/**
+ * 日志流单例（compat 壳，T2.4）：绑定 defaultGameContext（≡ forGame('gst') 语义，
+ * tail <GAME_ROOT>/logs/game.log）。per-game 实例经 servicesFor(gameId).log 获取
+ * （T2.7 接线），本单例保证过渡期行为连续。
+ */
+export const logStream = new LogStreamService({ context: defaultGameContext })

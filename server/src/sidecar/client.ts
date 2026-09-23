@@ -15,6 +15,8 @@
  *   spawn(process.execPath, ['--import', 'tsx', driverPath],
  *         { cwd: GAME_ROOT, env: { …, TSX_TSCONFIG_PATH: <GAME_ROOT>/tsconfig.json } })
  * 本 Phase cwd 用 config.ts 现有 GAME_ROOT 解析（不新建机制）。
+ * T2.3：构造参数可注入 gameRoot（SidecarManager 按 gameId 传各游戏 gameRoot）；
+ * 缺省仍为 config.GAME_ROOT——单例 sidecar 与存量消费方行为零变化。
  *
  * NDJSON（§0.2）：id 自增 + pending map；stdout 半行缓冲按行拆
  * （instanceManager.ts feedLines 同款思路）；stderr 行转发 console
@@ -91,6 +93,12 @@ export interface SidecarSnapshot {
   pendingRequests: number
 }
 
+/** 构造参数（T2.3）：注入 gameRoot 供 per-game driver 使用；缺省维持现状行为。 */
+export interface SidecarClientOptions {
+  /** 游戏根目录（driver 的 cwd 与 TSX_TSCONFIG_PATH 锚点）；缺省 config.GAME_ROOT。 */
+  gameRoot?: string
+}
+
 export class SidecarClient {
   private static exitHookInstalled = false
   private static readonly live = new Set<SidecarClient>()
@@ -124,8 +132,11 @@ export class SidecarClient {
   private unavailableMsg: string | null = null
   /** 请求串行化 promise 链。 */
   private queue: Promise<unknown> = Promise.resolve()
+  /** driver 的 cwd / tsconfig 锚点（T2.3 per-game 注入；缺省 config.GAME_ROOT）。 */
+  private readonly gameRoot: string
 
-  constructor() {
+  constructor(options: SidecarClientOptions = {}) {
+    this.gameRoot = options.gameRoot ? path.resolve(options.gameRoot) : GAME_ROOT
     SidecarClient.installExitHook()
     SidecarClient.live.add(this)
   }
@@ -295,11 +306,11 @@ export class SidecarClient {
     }
   }
 
-  /** spawn（T0.3 定型候选 1）：node --import tsx，cwd=GAME_ROOT，TSX_TSCONFIG_PATH 指向本体 tsconfig。 */
+  /** spawn（T0.3 定型候选 1）：node --import tsx，cwd=gameRoot，TSX_TSCONFIG_PATH 指向本体 tsconfig。 */
   private spawnDriver(): ChildProcess {
     const child = spawn(process.execPath, ['--import', 'tsx', DRIVER_PATH], {
-      cwd: GAME_ROOT,
-      env: { ...process.env, TSX_TSCONFIG_PATH: path.join(GAME_ROOT, 'tsconfig.json') },
+      cwd: this.gameRoot,
+      env: { ...process.env, TSX_TSCONFIG_PATH: path.join(this.gameRoot, 'tsconfig.json') },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.child = child
@@ -440,5 +451,12 @@ export class SidecarClient {
   }
 }
 
-/** 平台侧 sidecar 客户端单例（T1.5/T1.6 的服务层从此引用）。 */
+/**
+ * 平台侧 sidecar 客户端单例（T1.5/T1.6 的服务层从此引用）。
+ *
+ * T2.3 语义：本单例未注入 gameRoot → 绑定 config.GAME_ROOT（=
+ * defaultGameContext.gameRoot，与 forGame('gst') 解析出的 gameRoot 同一绝对路径），
+ * 即"forGame('gst') 的语义等价物"，存量消费方零改动；T2.4 起服务层改接
+ * SidecarManager.forGame(gameId)，本单例退役。
+ */
 export const sidecar = new SidecarClient()

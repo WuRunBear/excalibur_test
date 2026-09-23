@@ -1,7 +1,7 @@
 /**
  * 配置上下文 store（S3-B）。
  *
- * 持有 GET /api/config-context 的结果（本体 / 工作区清单指纹、inSync、逐文件对比），
+ * 持有 GET games/:gameId/config-context 的结果（本体 / 工作区清单指纹、inSync、逐文件对比），
  * 供仪表盘配置上下文卡消费。活动工作区变更后自动重取（仅在已被使用过时，
  * 避免无人消费时的后台请求）；保存配置后的最新化由视图挂载刷新兜底。
  */
@@ -10,6 +10,7 @@ import { defineStore } from 'pinia'
 
 import { AdminApiError, fetchConfigContext } from '@/api/admin'
 import type { ConfigContext } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 function errorText(err: unknown, fallback: string): string {
@@ -48,6 +49,18 @@ export const useConfigContextStore = defineStore('admin-config-context', () => {
     () => workspaceStore.activeId,
     (id, prev) => {
       if (id !== prev && loadCount > 0) void load()
+    },
+  )
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 清空上下文与 loadCount（避免旧
+  // 数据触发上面的 activeId 联动重取）；配置上下文卡重挂载后 ensureLoaded 重取。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      context.value = null
+      lastError.value = null
+      loadCount = 0
     },
   )
 

@@ -9,8 +9,7 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 
 import { isInstanceRole } from '../services/instanceManager.js'
-import { liveState } from '../services/liveState.js'
-import { fail, handleError, ok } from './helpers.js'
+import { fail, handleError, ok, servicesForRequest } from './helpers.js'
 
 export const liveRouter = Router()
 
@@ -23,7 +22,7 @@ liveRouter.get('/samples', (req: Request, res: Response) => {
     }
     const raw = Number(req.query.limit)
     const limit = Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 120
-    ok(res, { role, samples: liveState.getSamples(role, limit) })
+    ok(res, { role, samples: servicesForRequest(req).live.getSamples(role, limit) })
   } catch (err) {
     handleError(res, err)
   }

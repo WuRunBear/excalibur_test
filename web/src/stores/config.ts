@@ -4,7 +4,7 @@
  * 文件树、当前文件与草稿（dirty 跟踪）、保存链（PUT 校验失败 → 错误面板 +
  * Monaco 标记）、当前文件校验与整体校验。切换文件 / 工作区前的 dirty 确认由视图负责。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 
@@ -18,6 +18,7 @@ import {
   validateConfigFile,
 } from '@/api/admin'
 import type { ConfigFile, ConfigTreeNode, ValidationError } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 /** 保存结果：已保存 / 校验未通过（错误已入面板）/ 其他失败（已提示）。 */
@@ -165,6 +166,16 @@ export const useConfigStore = defineStore('admin-config', () => {
     clearFile()
     validateAllResult.value = null
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 清空编辑状态（含未保存草稿，
+  // 避免把 A 游戏的草稿落到 B 游戏）；配置视图重挂载后 loadTree 重建。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      reset()
+    },
+  )
 
   return {
     tree,

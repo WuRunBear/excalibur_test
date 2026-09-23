@@ -14,28 +14,32 @@ const mocks = vi.hoisted(() => ({
   messageError: vi.fn(),
 }))
 
-vi.mock('@/api/admin', () => ({
-  AdminApiError: class AdminApiError extends Error {
-    readonly code: number
-    readonly detail: unknown
-    constructor(message: string, code = 1, detail?: unknown) {
-      super(message)
-      this.name = 'AdminApiError'
-      this.code = code
-      this.detail = detail
-    }
-  },
-  extractValidationErrors: (detail: unknown) => {
-    if (typeof detail !== 'object' || detail === null) return null
-    const errors = (detail as { errors?: unknown }).errors
-    return Array.isArray(errors) ? (errors as never[]) : null
-  },
-  fetchConfigTree: mocks.fetchConfigTree,
-  fetchConfigFile: mocks.fetchConfigFile,
-  saveConfigFile: mocks.saveConfigFile,
-  validateConfigFile: mocks.validateConfigFile,
-  validateAllConfigs: mocks.validateAllConfigs,
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...original,
+    AdminApiError: class AdminApiError extends Error {
+      readonly code: number
+      readonly detail: unknown
+      constructor(message: string, code = 1, detail?: unknown) {
+        super(message)
+        this.name = 'AdminApiError'
+        this.code = code
+        this.detail = detail
+      }
+    },
+    extractValidationErrors: (detail: unknown) => {
+      if (typeof detail !== 'object' || detail === null) return null
+      const errors = (detail as { errors?: unknown }).errors
+      return Array.isArray(errors) ? (errors as never[]) : null
+    },
+    fetchConfigTree: mocks.fetchConfigTree,
+    fetchConfigFile: mocks.fetchConfigFile,
+    saveConfigFile: mocks.saveConfigFile,
+    validateConfigFile: mocks.validateConfigFile,
+    validateAllConfigs: mocks.validateAllConfigs,
+  }
+})
 
 vi.mock('@/stores/workspace', () => ({
   useWorkspaceStore: () => ({

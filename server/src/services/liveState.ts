@@ -15,12 +15,18 @@
  * 采样：每 1000ms 从 room.state 读 {tick, 我的 PlayerState.visibleEntities.size}；
  * tickRate = 瞬时速率（tick 增量/间隔秒）的 3 次滑动平均，首样本 0。
  * 每次采样写入 300 条/role 环形缓冲（无订阅者也持续采样，供回填）并广播到
- * ws 频道 live:{role}。
+ * ws 频道 live:{gameId}:{role}（T2.4 公式；hub 白名单改版在 T2.7）。
+ *
+ * T2.4 per-game 实例化：每游戏一个 LiveStateService 实例（servicesFor(gameId).live），
+ * 内部态 Map 的 key 一律 `<gameId>:<role>`；roomName 读自各自 context
+ * （manifest.observer.roomName 合成而来）。
  */
 import { Client } from '@colyseus/sdk'
 import type { Room } from '@colyseus/sdk'
 
-import { defaultGameContext } from '../gameContext.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { toHolder } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
 import type { InstanceRole, InstanceSnapshot, LiveSample } from '../types.js'
 import type { WsChannel } from '../ws/hub.js'
 import { wsHub } from '../ws/hub.js'
@@ -54,181 +60,212 @@ const RECONNECT_MAX_MS = 15_000
 /** tickRate 滑动平均窗口（瞬时速率样本数）。 */
 const RATE_WINDOW = 3
 
-const ROLES: readonly InstanceRole[] = ['official', 'preview']
+/**
+ * live 采样 WS 频道名（T2.4 公式）：`live:{gameId}:{role}`。
+ * 纯函数导出供单测与 T2.7 hub 白名单/路由复用。
+ * 注意：ws/hub.ts 的频道白名单改版在 T2.7——在此之前本频道名尚无法被订阅
+ * （broadcast 无订阅者为 no-op），属 Phase 2 内部过渡态。
+ */
+export function liveChannel(gameId: string, role: InstanceRole): string {
+  return `live:${gameId}:${role}`
+}
 
-function channelOf(role: InstanceRole): WsChannel {
-  return `live:${role}` as WsChannel
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface LiveStateServiceOptions {
+  /** 游戏上下文（或容器 contextHolder）：roomName 的出处（manifest.observer）。 */
+  context: GameContext | ContextHolder
 }
 
 export class LiveStateService {
-  /** 期望观察中的 role（running 时 true；stop/crash 后 false）。 */
-  private readonly wanted = new Map<InstanceRole, boolean>()
-  /** 活跃观察会话。 */
-  private readonly rooms = new Map<InstanceRole, Room<unknown> | null>()
-  /** 观察目标端口（对应实例快照端口）。 */
-  private readonly ports = new Map<InstanceRole, number | null>()
-  /** 采样定时器。 */
-  private readonly sampleTimers = new Map<InstanceRole, NodeJS.Timeout | null>()
-  /** 重连定时器（防重复排队）。 */
-  private readonly reconnectTimers = new Map<InstanceRole, NodeJS.Timeout | null>()
-  /** 当前退避间隔（成功后重置）。 */
-  private readonly backoff = new Map<InstanceRole, number>()
-  /** tickRate 平滑窗口（瞬时速率样本）。 */
-  private readonly rateWindow = new Map<InstanceRole, number[]>()
-  /** 上一次采样的 tick 与时间戳。 */
-  private readonly lastTick = new Map<InstanceRole, number>()
-  private readonly lastTs = new Map<InstanceRole, number>()
+  private readonly holder: ContextHolder
 
-  /** 每 role 环形缓冲。 */
-  private readonly rings: Record<InstanceRole, LiveSample[]> = {
-    official: [],
-    preview: [],
+  constructor(options: LiveStateServiceOptions) {
+    this.holder = toHolder(options.context)
   }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
+  }
+
+  /** per-game 内部态的 key：`<gameId>:<role>`（规格 T2.4：Map<role,…> key 变此公式）。 */
+  private keyOf(role: InstanceRole): string {
+    return `${this.ctx.gameId}:${role}`
+  }
+
+  /** 期望观察中的 role（running 时 true；stop/crash 后 false）。 */
+  private readonly wanted = new Map<string, boolean>()
+  /** 活跃观察会话。 */
+  private readonly rooms = new Map<string, Room<unknown> | null>()
+  /** 观察目标端口（对应实例快照端口）。 */
+  private readonly ports = new Map<string, number | null>()
+  /** 采样定时器。 */
+  private readonly sampleTimers = new Map<string, NodeJS.Timeout | null>()
+  /** 重连定时器（防重复排队）。 */
+  private readonly reconnectTimers = new Map<string, NodeJS.Timeout | null>()
+  /** 当前退避间隔（成功后重置）。 */
+  private readonly backoff = new Map<string, number>()
+  /** tickRate 平滑窗口（瞬时速率样本）。 */
+  private readonly rateWindow = new Map<string, number[]>()
+  /** 上一次采样的 tick 与时间戳。 */
+  private readonly lastTick = new Map<string, number>()
+  private readonly lastTs = new Map<string, number>()
+
+  /** 每 role 环形缓冲（懒建，key = `<gameId>:<role>`）。 */
+  private readonly rings = new Map<string, LiveSample[]>()
 
   /** 实例状态变化入口（index.ts 订阅 instanceManager.onStateChange 接入）。 */
   handleInstanceStatus(role: InstanceRole, snapshot: InstanceSnapshot): void {
+    // 防串台：快照带 gameId 时只处理本游戏的实例（T2.7 起多游戏并存）
+    if (snapshot.gameId !== undefined && snapshot.gameId !== this.ctx.gameId) return
+    const key = this.keyOf(role)
     if (snapshot.status === 'running') {
-      void this.ensureObserver(role, snapshot.port)
+      void this.ensureObserver(key, role, snapshot.port)
       return
     }
     // stopped / crashed / starting（重连目标可能变化）→ 拆除观察
-    void this.teardown(role)
+    void this.teardown(key)
   }
 
   /** 回填：最近 N 条（旧→新），limit 夹取 [1, 300]。 */
   getSamples(role: InstanceRole, limit: number): LiveSample[] {
     const n = Number.isFinite(limit) ? Math.floor(limit) : 120
     const clamped = Math.min(RING_CAPACITY, Math.max(1, n))
-    return this.rings[role].slice(-clamped)
+    return (this.rings.get(this.keyOf(role)) ?? []).slice(-clamped)
   }
 
-  /** 全部观察会话拆除（admin 退出时调用）。 */
+  /** 本游戏全部观察会话拆除（admin 退出时调用；per-game 实例只拆自己的 key）。 */
   stopAll(): void {
-    for (const role of ROLES) void this.teardown(role)
+    for (const key of [...this.wanted.keys()]) {
+      const role = (key.slice(key.lastIndexOf(':') + 1) || 'official') as InstanceRole
+      void this.teardown(key)
+    }
   }
 
   // ---------------------------------------------------------------------------
   // 会话生命周期
   // ---------------------------------------------------------------------------
 
-  private async ensureObserver(role: InstanceRole, port: number): Promise<void> {
-    const prevPort = this.ports.get(role) ?? null
-    if (this.rooms.get(role)) {
+  private async ensureObserver(key: string, role: InstanceRole, port: number): Promise<void> {
+    const prevPort = this.ports.get(key) ?? null
+    if (this.rooms.get(key)) {
       if (prevPort === port) return // 已在同一实例上观察
-      await this.teardown(role) // 端口变化：拆旧换新
+      await this.teardown(key) // 端口变化：拆旧换新
     }
-    this.wanted.set(role, true)
-    this.ports.set(role, port)
-    this.backoff.set(role, RECONNECT_INITIAL_MS)
-    await this.connect(role, port)
+    this.wanted.set(key, true)
+    this.ports.set(key, port)
+    this.backoff.set(key, RECONNECT_INITIAL_MS)
+    await this.connect(key, role, port)
   }
 
-  private async connect(role: InstanceRole, port: number): Promise<void> {
-    if (!this.wanted.get(role)) return
+  private async connect(key: string, role: InstanceRole, port: number): Promise<void> {
+    if (!this.wanted.get(key)) return
     try {
       const client = new Client(`ws://localhost:${port}`)
       // schema-less join（动态解码，见文件说明）；房间名出处 = context.roomName
-      const room = (await client.joinOrCreate(defaultGameContext.roomName)) as Room<unknown>
-      if (!this.wanted.get(role)) {
+      // （T2.4：per-game，从 manifest.observer.roomName 合成而来）
+      const roomName = this.ctx.roomName
+      const room = (await client.joinOrCreate(roomName)) as Room<unknown>
+      if (!this.wanted.get(key)) {
         // 等待 join 期间实例已停止：立即退出，不留观察者实体
         await room.leave(true).catch(() => {})
         return
       }
-      this.rooms.set(role, room)
-      this.backoff.set(role, RECONNECT_INITIAL_MS)
-      this.resetRateState(role)
+      this.rooms.set(key, room)
+      this.backoff.set(key, RECONNECT_INITIAL_MS)
+      this.resetRateState(key)
       console.log(
-        `[liveState:${role}] joined "${defaultGameContext.roomName}" @:${port} (sessionId=${room.sessionId}) — 观察者在游戏内创建一个玩家实体`,
+        `[liveState:${key}] joined "${roomName}" @:${port} (sessionId=${room.sessionId}) — 观察者在游戏内创建一个玩家实体`,
       )
 
       room.onLeave((code) => {
-        if (this.rooms.get(role) === room) this.rooms.set(role, null)
-        this.stopSampling(role)
-        if (this.wanted.get(role)) {
-          console.warn(`[liveState:${role}] room left (code=${code})，安排重连`)
-          this.scheduleReconnect(role, port)
+        if (this.rooms.get(key) === room) this.rooms.set(key, null)
+        this.stopSampling(key)
+        if (this.wanted.get(key)) {
+          console.warn(`[liveState:${key}] room left (code=${code})，安排重连`)
+          this.scheduleReconnect(key, role, port)
         } else {
-          console.log(`[liveState:${role}] room left (code=${code})`)
+          console.log(`[liveState:${key}] room left (code=${code})`)
         }
       })
       room.onError((code, message) => {
         // 房间级错误：只记日志（leave 事件会跟随触发重连判断）
-        console.error(`[liveState:${role}] room error: code=${code}`, message ?? '')
+        console.error(`[liveState:${key}] room error: code=${code}`, message ?? '')
       })
 
-      this.startSampling(role)
+      this.startSampling(key, role)
     } catch (err) {
-      const delay = this.backoff.get(role) ?? RECONNECT_INITIAL_MS
-      this.backoff.set(role, Math.min(delay * 2, RECONNECT_MAX_MS))
+      const delay = this.backoff.get(key) ?? RECONNECT_INITIAL_MS
+      this.backoff.set(key, Math.min(delay * 2, RECONNECT_MAX_MS))
       console.warn(
-        `[liveState:${role}] join @:${port} 失败（${err instanceof Error ? err.message : String(err)}），${delay}ms 后重试`,
+        `[liveState:${key}] join @:${port} 失败（${err instanceof Error ? err.message : String(err)}），${delay}ms 后重试`,
       )
-      this.scheduleReconnect(role, port)
+      this.scheduleReconnect(key, role, port)
     }
   }
 
-  private scheduleReconnect(role: InstanceRole, port: number): void {
-    if (!this.wanted.get(role) || this.reconnectTimers.get(role)) return
-    const delay = this.backoff.get(role) ?? RECONNECT_INITIAL_MS
+  private scheduleReconnect(key: string, role: InstanceRole, port: number): void {
+    if (!this.wanted.get(key) || this.reconnectTimers.get(key)) return
+    const delay = this.backoff.get(key) ?? RECONNECT_INITIAL_MS
     this.reconnectTimers.set(
-      role,
+      key,
       setTimeout(() => {
-        this.reconnectTimers.set(role, null)
-        void this.connect(role, port)
+        this.reconnectTimers.set(key, null)
+        void this.connect(key, role, port)
       }, delay),
     )
   }
 
   /** 拆除观察会话与采样（leave 在游戏内销毁观察者实体）。 */
-  private async teardown(role: InstanceRole): Promise<void> {
-    this.wanted.set(role, false)
-    this.ports.set(role, null)
-    this.backoff.set(role, RECONNECT_INITIAL_MS)
-    const timer = this.reconnectTimers.get(role)
+  private async teardown(key: string): Promise<void> {
+    this.wanted.set(key, false)
+    this.ports.set(key, null)
+    this.backoff.set(key, RECONNECT_INITIAL_MS)
+    const timer = this.reconnectTimers.get(key)
     if (timer) {
       clearTimeout(timer)
-      this.reconnectTimers.set(role, null)
+      this.reconnectTimers.set(key, null)
     }
-    this.stopSampling(role)
-    const room = this.rooms.get(role)
-    this.rooms.set(role, null)
+    this.stopSampling(key)
+    const room = this.rooms.get(key)
+    this.rooms.set(key, null)
     if (room) {
       try {
         await room.leave(true)
-        console.log(`[liveState:${role}] observer left`)
+        console.log(`[liveState:${key}] observer left`)
       } catch (err) {
-        console.warn(`[liveState:${role}] leave failed:`, err instanceof Error ? err.message : err)
+        console.warn(`[liveState:${key}] leave failed:`, err instanceof Error ? err.message : err)
       }
     }
-    this.resetRateState(role)
+    this.resetRateState(key)
   }
 
   // ---------------------------------------------------------------------------
   // 采样
   // ---------------------------------------------------------------------------
 
-  private startSampling(role: InstanceRole): void {
-    this.stopSampling(role)
-    void this.sample(role) // 首样本立即采集（tickRate=0）
-    this.sampleTimers.set(role, setInterval(() => void this.sample(role), SAMPLE_INTERVAL_MS))
+  private startSampling(key: string, role: InstanceRole): void {
+    this.stopSampling(key)
+    void this.sample(key, role) // 首样本立即采集（tickRate=0）
+    this.sampleTimers.set(key, setInterval(() => void this.sample(key, role), SAMPLE_INTERVAL_MS))
   }
 
-  private stopSampling(role: InstanceRole): void {
-    const timer = this.sampleTimers.get(role)
+  private stopSampling(key: string): void {
+    const timer = this.sampleTimers.get(key)
     if (timer) {
       clearInterval(timer)
-      this.sampleTimers.set(role, null)
+      this.sampleTimers.set(key, null)
     }
   }
 
-  private resetRateState(role: InstanceRole): void {
-    this.rateWindow.set(role, [])
-    this.lastTick.delete(role)
-    this.lastTs.delete(role)
+  private resetRateState(key: string): void {
+    this.rateWindow.set(key, [])
+    this.lastTick.delete(key)
+    this.lastTs.delete(key)
   }
 
-  private sample(role: InstanceRole): void {
-    const room = this.rooms.get(role)
+  private sample(key: string, role: InstanceRole): void {
+    const room = this.rooms.get(key)
     if (!room || !room.state) return // 首次状态同步未完成
     try {
       const state = room.state as unknown as RoomStateView | undefined
@@ -241,19 +278,19 @@ export class LiveStateService {
 
       // tickRate：瞬时速率的滑动平均
       const now = Date.now()
-      const prevTick = this.lastTick.get(role)
-      const prevTs = this.lastTs.get(role)
+      const prevTick = this.lastTick.get(key)
+      const prevTs = this.lastTs.get(key)
       if (prevTick !== undefined && prevTs !== undefined && now > prevTs) {
-        const window = this.rateWindow.get(role) ?? []
+        const window = this.rateWindow.get(key) ?? []
         window.push((tick - prevTick) / ((now - prevTs) / 1000))
         while (window.length > RATE_WINDOW) window.shift()
-        this.rateWindow.set(role, window)
+        this.rateWindow.set(key, window)
       }
-      const rates = this.rateWindow.get(role) ?? []
+      const rates = this.rateWindow.get(key) ?? []
       const tickRate =
         rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 0
-      this.lastTick.set(role, tick)
-      this.lastTs.set(role, now)
+      this.lastTick.set(key, tick)
+      this.lastTs.set(key, now)
 
       const sample: LiveSample = {
         role,
@@ -262,16 +299,25 @@ export class LiveStateService {
         tickRate: Math.round(tickRate * 100) / 100,
         entityCount,
       }
-      const ring = this.rings[role]
+      let ring = this.rings.get(key)
+      if (!ring) {
+        ring = []
+        this.rings.set(key, ring)
+      }
       ring.push(sample)
       if (ring.length > RING_CAPACITY) ring.splice(0, ring.length - RING_CAPACITY)
-      wsHub.broadcast(channelOf(role), sample)
+      // T2.4 频道公式：live:{gameId}:{role}（hub 白名单改版在 T2.7，见 liveChannel 注释）
+      wsHub.broadcast(liveChannel(this.ctx.gameId, role) as WsChannel, sample)
     } catch (err) {
       // 旁路容错：采样异常只记日志
-      console.error(`[liveState:${role}] sample failed:`, err instanceof Error ? err.message : err)
+      console.error(`[liveState:${key}] sample failed:`, err instanceof Error ? err.message : err)
     }
   }
 }
 
-/** liveState 服务单例。 */
-export const liveState = new LiveStateService()
+/**
+ * liveState 服务单例（compat 壳，T2.4）：绑定 defaultGameContext（≡ forGame('gst')
+ * 语义，roomName='game'）；频道名随之变为 live:gst:{role}（hub 白名单 T2.7 改版）。
+ * 路由层改接 servicesFor 是 T2.7 的事，本单例保证过渡期行为连续。
+ */
+export const liveState = new LiveStateService({ context: defaultGameContext })

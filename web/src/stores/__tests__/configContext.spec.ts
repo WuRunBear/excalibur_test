@@ -13,24 +13,28 @@ const mocks = vi.hoisted(() => ({
   messageError: vi.fn(),
 }))
 
-vi.mock('@/api/admin', () => ({
-  AdminApiError: class AdminApiError extends Error {
-    readonly code: number
-    readonly detail: unknown
-    constructor(message: string, code = 1, detail?: unknown) {
-      super(message)
-      this.name = 'AdminApiError'
-      this.code = code
-      this.detail = detail
-    }
-  },
-  fetchConfigContext: mocks.fetchConfigContext,
-  fetchWorkspaces: mocks.fetchWorkspaces,
-  createWorkspace: mocks.createWorkspace,
-  activateWorkspace: mocks.activateWorkspace,
-  renameWorkspace: mocks.renameWorkspace,
-  deleteWorkspace: mocks.deleteWorkspace,
-}))
+vi.mock('@/api/admin', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/api/admin')>()
+  return {
+    ...original,
+    AdminApiError: class AdminApiError extends Error {
+      readonly code: number
+      readonly detail: unknown
+      constructor(message: string, code = 1, detail?: unknown) {
+        super(message)
+        this.name = 'AdminApiError'
+        this.code = code
+        this.detail = detail
+      }
+    },
+    fetchConfigContext: mocks.fetchConfigContext,
+    fetchWorkspaces: mocks.fetchWorkspaces,
+    createWorkspace: mocks.createWorkspace,
+    activateWorkspace: mocks.activateWorkspace,
+    renameWorkspace: mocks.renameWorkspace,
+    deleteWorkspace: mocks.deleteWorkspace,
+  }
+})
 
 vi.mock('element-plus', () => ({
   ElMessage: { success: mocks.messageSuccess, error: mocks.messageError },

@@ -68,7 +68,7 @@ describe('live store', () => {
     store.ensureRole('official')
 
     await vi.waitFor(() => expect(store.backfillDone.official).toBe(true))
-    expect(mocks.handlersByChannel.has('live:official')).toBe(true)
+    expect(mocks.handlersByChannel.has('live:gst:official')).toBe(true)
     expect(store.samples.official).toHaveLength(2)
     expect(store.windowOf('official')).toHaveLength(2)
   })
@@ -84,8 +84,8 @@ describe('live store', () => {
     store.ensureRole('official')
 
     // 回填未完成，WS 消息进待合并缓冲
-    wsHandlers('live:official').onMessage(makeSample('official', 5000))
-    wsHandlers('live:official').onMessage(makeSample('official', 6000))
+    wsHandlers('live:gst:official').onMessage(makeSample('official', 5000))
+    wsHandlers('live:gst:official').onMessage(makeSample('official', 6000))
     expect(store.samples.official).toHaveLength(0)
 
     resolveBackfill({
@@ -110,8 +110,8 @@ describe('live store', () => {
     store.ensureRole('official')
     await vi.waitFor(() => expect(store.backfillDone.official).toBe(true))
 
-    wsHandlers('live:official').onMessage(makeSample('official', 2000, { entityCount: 5 }))
-    wsHandlers('live:official').onMessage(makeSample('official', 1500))
+    wsHandlers('live:gst:official').onMessage(makeSample('official', 2000, { entityCount: 5 }))
+    wsHandlers('live:gst:official').onMessage(makeSample('official', 1500))
     expect(store.samples.official.map((s) => s.ts)).toEqual([1000, 2000])
     expect(store.samples.official[1].entityCount).toBe(5)
   })
@@ -123,7 +123,7 @@ describe('live store', () => {
     await vi.waitFor(() => expect(store.backfillDone.preview).toBe(true))
 
     for (let i = 1; i <= LIVE_BUFFER_CAP + 10; i++) {
-      wsHandlers('live:preview').onMessage(makeSample('preview', i * 1000))
+      wsHandlers('live:gst:preview').onMessage(makeSample('preview', i * 1000))
     }
     expect(store.samples.preview).toHaveLength(LIVE_BUFFER_CAP)
     expect(store.samples.preview[0].ts).toBe(11000)
@@ -139,7 +139,7 @@ describe('live store', () => {
     await vi.waitFor(() => expect(store.backfillDone.official).toBe(true))
 
     // 断线 → 重连成功
-    wsHandlers('live:official').onClose?.()
+    wsHandlers('live:gst:official').onClose?.()
     expect(store.wsState.official).toBe('offline')
     mocks.fetchLiveSamples.mockResolvedValue({
       role: 'official',
@@ -149,7 +149,7 @@ describe('live store', () => {
         makeSample('official', 3000),
       ],
     })
-    wsHandlers('live:official').onOpen?.()
+    wsHandlers('live:gst:official').onOpen?.()
     expect(store.wsState.official).toBe('online')
     await vi.waitFor(() =>
       expect(store.samples.official.map((s) => s.ts)).toEqual([1000, 2000, 3000]),
@@ -164,9 +164,9 @@ describe('live store', () => {
     store.ensureRole('official')
     await vi.waitFor(() => expect(store.backfillDone.official).toBe(true))
 
-    wsHandlers('live:official').onMessage({ role: 'official', ts: 1 })
-    wsHandlers('live:official').onMessage(null)
-    wsHandlers('live:official').onMessage(
+    wsHandlers('live:gst:official').onMessage({ role: 'official', ts: 1 })
+    wsHandlers('live:gst:official').onMessage(null)
+    wsHandlers('live:gst:official').onMessage(
       makeSample('official', 2000, { entityCount: 'x' as unknown as number }),
     )
     expect(store.samples.official).toHaveLength(0)
@@ -179,7 +179,7 @@ describe('live store', () => {
     await vi.waitFor(() => expect(store.backfillDone.official).toBe(true))
 
     store.dispose()
-    expect(mocks.closeByChannel.get('live:official')).toHaveBeenCalled()
+    expect(mocks.closeByChannel.get('live:gst:official')).toHaveBeenCalled()
     expect(store.samples.official).toHaveLength(0)
     expect(store.backfillDone.official).toBe(false)
     expect(store.wsState.official).toBe('connecting')

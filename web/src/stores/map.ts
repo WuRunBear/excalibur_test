@@ -4,11 +4,12 @@
  * 数据源（工作区/本体）切换、地图清单与演化规则的按源缓存；
  * geometry 拉取在视图层直接调 api（每次取最新生成结果，配合「重新生成」语义）。
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 
 import { fetchEntityRules, fetchMaps } from '@/api/admin'
 import type { MapSource, MapSummary } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 
 export const useMapStore = defineStore('admin-map', () => {
   const source = ref<MapSource>('workspace')
@@ -75,6 +76,21 @@ export const useMapStore = defineStore('admin-map', () => {
   function setSource(next: MapSource): void {
     source.value = next
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 清空清单 / 选中图 / 演化规则缓存；
+  // 地图视图重挂载后 ensureMapsLoaded 以新 gameId 重取。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      maps.value = []
+      mapsError.value = null
+      mapsLoadedFor.value = null
+      selectedKey.value = null
+      rules.value = {}
+      rulesLoading.value = {}
+    },
+  )
 
   return {
     source,

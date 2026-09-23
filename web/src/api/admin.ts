@@ -3,7 +3,9 @@
  *
  * - REST：统一解包 { code, message, detail }，code ≠ 0 抛 AdminApiError（携带后端 message）。
  *   基址默认 http://localhost:3100，可用 VITE_ADMIN_SERVER_URL 覆盖（参数化先例见 modules/net/config.ts）。
+ *   寻址统一走 games/:gameId/<域>（adminGameUrl 构造；本期 gameId 固定 'gst'，T2.10 接游戏切换器）。
  * - WS：/ws?channel=<name> 频道订阅封装，断线按指数退避自动重连（1s 起，封顶 15s）。
+ *   频道名统一带 gameId（channelInstanceState / channelInstanceLog / channelLive 构造）。
  *
  * 类型镜像 server/src/types.ts（web 不跨包引入后端源码；契约同步以该文件为准）。
  */
@@ -48,13 +50,54 @@ export interface LogMessage {
   ts: number
 }
 
-/** WS 频道白名单（镜像 server/src/ws/hub.ts 的 WS_CHANNELS）。 */
+/**
+ * 当前管理目标 gameId（T2.10：由游戏切换器 store 提供）。
+ *
+ * api 层不直接依赖 Pinia：main.ts 在 pinia 安装后经 setAdminGameIdReader 注入
+ * games store 的读取器；未注入（单测 / 极早期调用）时回退默认游戏 'gst'。
+ */
+const FALLBACK_GAME_ID = 'gst'
+
+let gameIdReader: () => string = () => FALLBACK_GAME_ID
+
+/** 注入 gameId 读取器（main.ts 装配一次；测试可注入任意取值）。 */
+export function setAdminGameIdReader(reader: () => string): void {
+  gameIdReader = reader
+}
+
+/** 当前管理目标 gameId（游戏切换器选中项；初始 = 默认游戏）。 */
+export function currentGameId(): string {
+  return gameIdReader()
+}
+
+/**
+ * REST url builder：统一构造 games/:gameId/<域>... 寻址（域内子路径可带查询串）。
+ * 所有 REST 调用必须经此构造，禁止再硬编码旧 /api/<域> 路径（旧路径仅为兼容保留）。
+ */
+export function adminGameUrl(domainPath: string): string {
+  return `/api/games/${currentGameId()}/${domainPath.replace(/^\/+/, '')}`
+}
+
+/** WS 频道白名单（镜像 server/src/ws/hub.ts 的模式校验；频道名统一带 gameId）。 */
 export type AdminChannel =
-  | 'instance:state'
-  | 'instance:log:official'
-  | 'instance:log:preview'
-  | 'live:official'
-  | 'live:preview'
+  | `instance:state:${string}`
+  | `instance:log:${string}:${InstanceRole}`
+  | `live:${string}:${InstanceRole}`
+
+/** WS 频道名：实例状态流 instance:state:{gameId}（双角色共用一条）。 */
+export function channelInstanceState(): AdminChannel {
+  return `instance:state:${currentGameId()}`
+}
+
+/** WS 频道名：实例日志流 instance:log:{gameId}:{role}。 */
+export function channelInstanceLog(role: InstanceRole): AdminChannel {
+  return `instance:log:${currentGameId()}:${role}`
+}
+
+/** WS 频道名：游戏观察采样流 live:{gameId}:{role}。 */
+export function channelLive(role: InstanceRole): AdminChannel {
+  return `live:${currentGameId()}:${role}`
+}
 
 /** 统一响应结构。 */
 interface AdminEnvelope<T> {
@@ -140,27 +183,27 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload.detail as T
 }
 
-/** GET /api/instances → 双角色状态快照。 */
+/** GET games/:gameId/instances → 双角色状态快照。 */
 export async function fetchInstances(): Promise<{
   official: InstanceSnapshot
   preview: InstanceSnapshot
 }> {
-  return request('/api/instances')
+  return request(adminGameUrl('instances'))
 }
 
-/** POST /api/instances/:role/start → 启动实例（detail 为最新快照）。 */
+/** POST games/:gameId/instances/:role/start → 启动实例（detail 为最新快照）。 */
 export function startInstance(role: InstanceRole): Promise<InstanceSnapshot> {
-  return request<InstanceSnapshot>(`/api/instances/${role}/start`, { method: 'POST' })
+  return request<InstanceSnapshot>(adminGameUrl(`instances/${role}/start`), { method: 'POST' })
 }
 
-/** POST /api/instances/:role/stop → 停止实例（树杀，等待退出归因）。 */
+/** POST games/:gameId/instances/:role/stop → 停止实例（树杀，等待退出归因）。 */
 export function stopInstance(role: InstanceRole): Promise<InstanceSnapshot> {
-  return request<InstanceSnapshot>(`/api/instances/${role}/stop`, { method: 'POST' })
+  return request<InstanceSnapshot>(adminGameUrl(`instances/${role}/stop`), { method: 'POST' })
 }
 
-/** POST /api/instances/:role/restart → 重启实例（stop 完成后 start）。 */
+/** POST games/:gameId/instances/:role/restart → 重启实例（stop 完成后 start）。 */
 export function restartInstance(role: InstanceRole): Promise<InstanceSnapshot> {
-  return request<InstanceSnapshot>(`/api/instances/${role}/restart`, { method: 'POST' })
+  return request<InstanceSnapshot>(adminGameUrl(`instances/${role}/restart`), { method: 'POST' })
 }
 
 /** 最近日志回填响应。 */
@@ -169,9 +212,9 @@ export interface RecentLogs {
   lines: LogMessage[]
 }
 
-/** GET /api/instances/:role/logs?lines=N → 环形缓冲最近 N 行（按时间正序）。 */
+/** GET games/:gameId/instances/:role/logs?lines=N → 环形缓冲最近 N 行（按时间正序）。 */
 export function fetchRecentLogs(role: InstanceRole, lines = 200): Promise<RecentLogs> {
-  return request<RecentLogs>(`/api/instances/${role}/logs?lines=${lines}`)
+  return request<RecentLogs>(adminGameUrl(`instances/${role}/logs?lines=${lines}`))
 }
 
 // ---------------------------------------------------------------------------
@@ -189,42 +232,42 @@ export interface WorkspaceMeta {
   changedFiles: number
 }
 
-/** GET /api/workspaces → 列表与当前活动工作区。 */
+/** GET games/:gameId/workspaces → 列表与当前活动工作区。 */
 export interface WorkspaceList {
   activeId: string | null
   items: WorkspaceMeta[]
 }
 
 export function fetchWorkspaces(): Promise<WorkspaceList> {
-  return request('/api/workspaces')
+  return request(adminGameUrl('workspaces'))
 }
 
-/** POST /api/workspaces {name} → 新建并自动激活。 */
+/** POST games/:gameId/workspaces {name} → 新建并自动激活。 */
 export function createWorkspace(name: string): Promise<WorkspaceMeta> {
-  return request('/api/workspaces', {
+  return request(adminGameUrl('workspaces'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   })
 }
 
-/** POST /api/workspaces/:id/activate → 激活（切换）工作区。 */
+/** POST games/:gameId/workspaces/:id/activate → 激活（切换）工作区。 */
 export function activateWorkspace(id: string): Promise<WorkspaceMeta> {
-  return request(`/api/workspaces/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+  return request(adminGameUrl(`workspaces/${encodeURIComponent(id)}/activate`), { method: 'POST' })
 }
 
-/** PATCH /api/workspaces/:id {name} → 重命名。 */
+/** PATCH games/:gameId/workspaces/:id {name} → 重命名。 */
 export function renameWorkspace(id: string, name: string): Promise<WorkspaceMeta> {
-  return request(`/api/workspaces/${encodeURIComponent(id)}`, {
+  return request(adminGameUrl(`workspaces/${encodeURIComponent(id)}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   })
 }
 
-/** DELETE /api/workspaces/:id → 删除（仅隔离副本，本体无痕）。 */
+/** DELETE games/:gameId/workspaces/:id → 删除（仅隔离副本，本体无痕）。 */
 export function deleteWorkspace(id: string): Promise<{ id: string }> {
-  return request(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  return request(adminGameUrl(`workspaces/${encodeURIComponent(id)}`), { method: 'DELETE' })
 }
 
 /** 改动文件状态。 */
@@ -235,9 +278,9 @@ export interface WorkspaceChange {
   status: WorkspaceChangeStatus
 }
 
-/** GET /api/workspaces/:id/changes → 改动文件清单。 */
+/** GET games/:gameId/workspaces/:id/changes → 改动文件清单。 */
 export function fetchWorkspaceChanges(id: string): Promise<{ files: WorkspaceChange[] }> {
-  return request(`/api/workspaces/${encodeURIComponent(id)}/changes`)
+  return request(adminGameUrl(`workspaces/${encodeURIComponent(id)}/changes`))
 }
 
 // ---------------------------------------------------------------------------
@@ -252,12 +295,12 @@ export interface ConfigTreeNode {
   children?: ConfigTreeNode[]
 }
 
-/** GET /api/configs/tree → 活动工作区 game/ 目录树。 */
+/** GET games/:gameId/configs/tree → 活动工作区 game/ 目录树。 */
 export function fetchConfigTree(): Promise<{ tree: ConfigTreeNode }> {
-  return request('/api/configs/tree')
+  return request(adminGameUrl('configs/tree'))
 }
 
-/** GET /api/configs/file?path=rel → 文件内容与 schema 类型。 */
+/** GET games/:gameId/configs/file?path=rel → 文件内容与 schema 类型。 */
 export interface ConfigFile {
   path: string
   content: string
@@ -266,7 +309,7 @@ export interface ConfigFile {
 }
 
 export function fetchConfigFile(path: string): Promise<ConfigFile> {
-  return request(`/api/configs/file?path=${encodeURIComponent(path)}`)
+  return request(adminGameUrl(`configs/file?path=${encodeURIComponent(path)}`))
 }
 
 /** 校验错误（jsonPath 定位字段；line 为 1-based 行号，可缺省）。 */
@@ -276,21 +319,21 @@ export interface ValidationError {
   line?: number
 }
 
-/** PUT /api/configs/file {path, content} → 成功 { path, valid: true }；校验失败 code 1 + detail.errors。 */
+/** PUT games/:gameId/configs/file {path, content} → 成功 { path, valid: true }；校验失败 code 1 + detail.errors。 */
 export interface ConfigSaveResult {
   path: string
   valid: true
 }
 
 export function saveConfigFile(path: string, content: string): Promise<ConfigSaveResult> {
-  return request('/api/configs/file', {
+  return request(adminGameUrl('configs/file'), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
   })
 }
 
-/** POST /api/configs/validate {path, content} → 不落盘的当前文件校验。 */
+/** POST games/:gameId/configs/validate {path, content} → 不落盘的当前文件校验。 */
 export interface ConfigValidateResult {
   schemaKind: string | null
   valid: boolean
@@ -298,21 +341,21 @@ export interface ConfigValidateResult {
 }
 
 export function validateConfigFile(path: string, content: string): Promise<ConfigValidateResult> {
-  return request('/api/configs/validate', {
+  return request(adminGameUrl('configs/validate'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content }),
   })
 }
 
-/** POST /api/configs/validate-all → 整体校验活动工作区全部配置。 */
+/** POST games/:gameId/configs/validate-all → 整体校验活动工作区全部配置。 */
 export interface ConfigValidateAllResult {
   valid: boolean
   message: string
 }
 
 export function validateAllConfigs(): Promise<ConfigValidateAllResult> {
-  return request('/api/configs/validate-all', { method: 'POST' })
+  return request(adminGameUrl('configs/validate-all'), { method: 'POST' })
 }
 
 /** 从 AdminApiError.detail 提取校验错误列表（PUT 校验失败：code 1 + detail.errors）。 */
@@ -352,7 +395,7 @@ export interface ConfigContextChange {
   status: WorkspaceChangeStatus
 }
 
-/** GET /api/config-context → 预览闭环的配置上下文。 */
+/** GET games/:gameId/config-context → 预览闭环的配置上下文。 */
 export interface ConfigContext {
   /** 本体 game/ 当前清单 */
   official: ConfigContextSide
@@ -365,7 +408,7 @@ export interface ConfigContext {
 }
 
 export function fetchConfigContext(): Promise<ConfigContext> {
-  return request('/api/config-context')
+  return request(adminGameUrl('config-context'))
 }
 
 // ---------------------------------------------------------------------------
@@ -387,13 +430,13 @@ export interface ApplyPlanFile {
   validationErrors: ValidationError[]
 }
 
-/** POST /api/apply/plan → 工作区 vs 本体的落盘计划（只读，不落盘）。 */
+/** POST games/:gameId/apply/plan → 工作区 vs 本体的落盘计划（只读，不落盘）。 */
 export interface ApplyPlan {
   files: ApplyPlanFile[]
 }
 
 export function fetchApplyPlan(): Promise<ApplyPlan> {
-  return request('/api/apply/plan', { method: 'POST' })
+  return request(adminGameUrl('apply/plan'), { method: 'POST' })
 }
 
 /** 落盘成功回执。 */
@@ -403,9 +446,9 @@ export interface ApplyReceipt {
   durationMs: number
 }
 
-/** POST /api/apply/execute {paths} → 写回本体（被覆盖/删除文件自动备份；成功后工作区 changes 归零）。 */
+/** POST games/:gameId/apply/execute {paths} → 写回本体（被覆盖/删除文件自动备份；成功后工作区 changes 归零）。 */
 export function executeApply(paths: string[]): Promise<ApplyReceipt> {
-  return request('/api/apply/execute', {
+  return request(adminGameUrl('apply/execute'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ paths }),
@@ -427,16 +470,18 @@ export interface BackupMeta {
   files: BackupFile[]
 }
 
-/** GET /api/backups → 备份列表。 */
+/** GET games/:gameId/backups → 备份列表。 */
 export function fetchBackups(): Promise<{ items: BackupMeta[] }> {
-  return request('/api/backups')
+  return request(adminGameUrl('backups'))
 }
 
-/** POST /api/backups/:backupId/rollback → 回滚（备份内容写回本体）。 */
+/** POST games/:gameId/backups/:backupId/rollback → 回滚（备份内容写回本体）。 */
 export function rollbackBackup(
   backupId: string,
 ): Promise<{ restored: { path: string; action: BackupFileAction }[] }> {
-  return request(`/api/backups/${encodeURIComponent(backupId)}/rollback`, { method: 'POST' })
+  return request(adminGameUrl(`backups/${encodeURIComponent(backupId)}/rollback`), {
+    method: 'POST',
+  })
 }
 
 /** execute 422 场景一：部分文件校验未通过（detail.invalid）。 */
@@ -487,18 +532,18 @@ export interface MapSummary {
   pipeline?: MapPipelineStep[]
 }
 
-/** GET /api/maps?source= → 地图清单（保留 registry 声明顺序）。 */
+/** GET games/:gameId/maps?source= → 地图清单（保留 registry 声明顺序）。 */
 export interface MapsPayload {
   source: MapSource
   maps: MapSummary[]
 }
 
 export function fetchMaps(source: MapSource): Promise<MapsPayload> {
-  return request(`/api/maps?source=${source}`)
+  return request(adminGameUrl(`maps?source=${source}`))
 }
 
 /**
- * POST /api/maps/:key/geometry → 序列化几何快照。
+ * POST games/:gameId/maps/:key/geometry → 序列化几何快照。
  * tiles / walkable / regionOfTile 为行主序扁平数组（长度 = width × height）；
  * regions 键为区域名，regionOfTile 值为 regions 键序的索引（无区域为负值）。
  */
@@ -513,7 +558,7 @@ export interface MapGeometryPayload {
 }
 
 export function fetchMapGeometry(key: string, source: MapSource): Promise<MapGeometryPayload> {
-  return request(`/api/maps/${encodeURIComponent(key)}/geometry`, {
+  return request(adminGameUrl(`maps/${encodeURIComponent(key)}/geometry`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source }),
@@ -522,17 +567,17 @@ export function fetchMapGeometry(key: string, source: MapSource): Promise<MapGeo
 
 /** 导出 URL（直接 a[download] / window.open 下载；palette 暂未接 UI，预留）。 */
 export function mapExportUrl(key: string, source: MapSource, format: 'png' | 'json'): string {
-  return `${ADMIN_API_BASE}/api/maps/${encodeURIComponent(key)}/export?source=${source}&format=${format}`
+  return `${ADMIN_API_BASE}${adminGameUrl(`maps/${encodeURIComponent(key)}/export?source=${source}&format=${format}`)}`
 }
 
-/** GET /api/maps/entity-rules?source= → 演化规则（原样 JSON，entries 引用 map/region）。 */
+/** GET games/:gameId/maps/entity-rules?source= → 演化规则（原样 JSON，entries 引用 map/region）。 */
 export interface EntityRulesPayload {
   source: MapSource
   rules: unknown
 }
 
 export function fetchEntityRules(source: MapSource): Promise<EntityRulesPayload> {
-  return request(`/api/maps/entity-rules?source=${source}`)
+  return request(adminGameUrl(`maps/entity-rules?source=${source}`))
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +606,7 @@ export interface SaveEntry {
   summary: SaveSummary | null
 }
 
-/** GET /api/saves?scope= → 存档清单。 */
+/** GET games/:gameId/saves?scope= → 存档清单。 */
 export interface SavesPayload {
   scope: SaveScope
   dir: string
@@ -569,10 +614,10 @@ export interface SavesPayload {
 }
 
 export function fetchSaves(scope: SaveScope): Promise<SavesPayload> {
-  return request(`/api/saves?scope=${scope}`)
+  return request(adminGameUrl(`saves?scope=${scope}`))
 }
 
-/** GET /api/saves/:file/detail?scope= → 存档详情。 */
+/** GET games/:gameId/saves/:file/detail?scope= → 存档详情。 */
 export interface SaveDetailPayload {
   file: string
   summary: SaveSummary | null
@@ -581,20 +626,22 @@ export interface SaveDetailPayload {
 }
 
 export function fetchSaveDetail(file: string, scope: SaveScope): Promise<SaveDetailPayload> {
-  return request(`/api/saves/${encodeURIComponent(file)}/detail?scope=${scope}`)
+  return request(adminGameUrl(`saves/${encodeURIComponent(file)}/detail?scope=${scope}`))
 }
 
-/** DELETE /api/saves/:file?scope= → 删除存档。 */
+/** DELETE games/:gameId/saves/:file?scope= → 删除存档。 */
 export function deleteSave(file: string, scope: SaveScope): Promise<{ file: string }> {
-  return request(`/api/saves/${encodeURIComponent(file)}?scope=${scope}`, { method: 'DELETE' })
+  return request(adminGameUrl(`saves/${encodeURIComponent(file)}?scope=${scope}`), {
+    method: 'DELETE',
+  })
 }
 
 /** 存档下载 URL（浏览器直接下载）。 */
 export function saveDownloadUrl(file: string, scope: SaveScope): string {
-  return `${ADMIN_API_BASE}/api/saves/${encodeURIComponent(file)}/download?scope=${scope}`
+  return `${ADMIN_API_BASE}${adminGameUrl(`saves/${encodeURIComponent(file)}/download?scope=${scope}`)}`
 }
 
-/** POST /api/saves/:file/restore?scope= → 恢复为活跃存档。 */
+/** POST games/:gameId/saves/:file/restore?scope= → 恢复为活跃存档。 */
 export interface SaveRestorePayload {
   restoredTo: string
   /** official scope 下提示需重启实例（存档在启动时加载） */
@@ -602,7 +649,7 @@ export interface SaveRestorePayload {
 }
 
 export function restoreSave(file: string, scope: SaveScope): Promise<SaveRestorePayload> {
-  return request(`/api/saves/${encodeURIComponent(file)}/restore?scope=${scope}`, {
+  return request(adminGameUrl(`saves/${encodeURIComponent(file)}/restore?scope=${scope}`), {
     method: 'POST',
   })
 }
@@ -612,7 +659,7 @@ export function restoreSave(file: string, scope: SaveScope): Promise<SaveRestore
 // ---------------------------------------------------------------------------
 
 /**
- * GET /api/registries → 五类注册表。
+ * GET games/:gameId/registries → 五类注册表。
  * 条目形状宽容：systems/archetypes 为对象数组（id 类字段），actions 含 name，
  * components 只取键（值为 null），mapGenerators 为 {id} 数组。
  */
@@ -625,14 +672,209 @@ export interface RegistriesPayload {
 }
 
 export function fetchRegistries(): Promise<RegistriesPayload> {
-  return request('/api/registries')
+  return request(adminGameUrl('registries'))
+}
+
+// ---------------------------------------------------------------------------
+// 游戏管理（T2.10：列表 / 详情 / 导入 / sync / PATCH / 移除）
+// 注意：games 管理面自身不按"当前 gameId"寻址——列表与导入是全表操作，
+// 详情/sync/PATCH/DELETE 显式带目标 gameId（可查看未选中的游戏）。
+// ---------------------------------------------------------------------------
+
+/** 游戏来源：git 仓库（平台 clone 到 server/games/<id>/checkout）或本地路径。 */
+export interface GameSourceGit {
+  type: 'git'
+  url: string
+  ref: string
+}
+
+export interface GameSourceLocal {
+  type: 'local'
+  path: string
+}
+
+export type GameSource = GameSourceGit | GameSourceLocal
+
+/** 同步状态指纹（空串 = 尚未同步/未知，由导入/同步流程回填）。 */
+export interface GameResolved {
+  /** git 源 = 平台 clone 的 HEAD；local 源 = 源目录 git HEAD（非 git 为 mtime hash 标注值）。 */
+  commit: string
+  /** ISO 8601。 */
+  syncedAt: string
+  /** pnpm-lock.yaml 的 sha256（前端不解读）。 */
+  lockfileHash: string
+}
+
+/** sidecar 状态摘要（GET /api/games 列表项内联；describe 不触发 driver spawn）。 */
+export interface GameSidecarSummary {
+  fingerprint: string
+  fingerprintSource: string
+  alive: boolean
+  pid: number | null
+  spawnFailures: number
+  /** 连续 spawn 失败原因；null = 未进入不可用态。 */
+  unavailable: string | null
+}
+
+/** GET /api/games 列表项。 */
+export interface GameListItem {
+  id: string
+  name: string
+  isDefault: boolean
+  source: GameSource
+  resolved: GameResolved
+  ports: { official: number; preview: number }
+  /** ISO 8601。 */
+  createdAt: string
+  /** 导入/同步进行中（期间该游戏的领域调用返回 409）。 */
+  isImporting: boolean
+  sidecar: GameSidecarSummary
+}
+
+export interface GameListPayload {
+  defaultGameId: string
+  games: GameListItem[]
+}
+
+/** GET /api/games → 注册游戏列表 + 默认游戏 id。 */
+export function fetchGames(): Promise<GameListPayload> {
+  return request('/api/games')
+}
+
+/** 接入清单（镜像 server/games/<id>/game.json 的 schema；T2.2 探测生成）。 */
+export interface GameManifest {
+  id: string
+  configDir: string
+  configEntry: string
+  savesDir: string
+  logsDir: string
+  envFile: string
+  start: { command: string; args: string[] }
+  /** preview 实例注入的环境变量名（值由服务端 spawn 前解析）。 */
+  envInjection: { port: string; configPath: string; saveDir: string }
+  schemaRoutes: { pattern: string; kind: string }[]
+  capabilities: { wholeConfigValidation: boolean; mapGeometry: boolean; registries: string[] }
+  observer: {
+    plugin: string
+    roomName: string
+    clientSchema?: { source: string; stateDir: string }
+  }
+  trustScripts?: boolean
+}
+
+/** sidecar 状态（GET 详情；client 为 driver 进程快照）。 */
+export interface GameSidecarStatus {
+  gameId: string
+  fingerprint: string
+  fingerprintSource: string
+  client: {
+    alive: boolean
+    pid: number | null
+    spawnFailures: number
+    unavailable: string | null
+    pendingRequests?: number
+  }
+}
+
+/**
+ * GET /api/games/:gameId → registry entry + manifest + sidecar 状态。
+ * manifest 为 null = 未探测（GET 零副作用，不现场生成；见游戏详情页劣化态）。
+ */
+export interface GameDetail {
+  id: string
+  name: string
+  isDefault: boolean
+  source: GameSource
+  resolved: GameResolved
+  ports: { official: number; preview: number }
+  createdAt: string
+  manifest: GameManifest | null
+  sidecar: GameSidecarStatus
+}
+
+export function fetchGameDetail(gameId: string): Promise<GameDetail> {
+  return request(`/api/games/${encodeURIComponent(gameId)}`)
+}
+
+/** POST /api/games/import 入参（source 二选一；id/name 省略时服务端从来源推导）。 */
+export interface ImportGameParams {
+  source: GameSource
+  id?: string
+  name?: string
+}
+
+/** 冒烟结果（五类注册表计数）。 */
+export interface SmokeCounts {
+  systems: number
+  archetypes: number
+  actions: number
+  components: number
+  mapGenerators: number
+}
+
+/** 导入/同步结果。 */
+export interface GameSyncResult {
+  gameId: string
+  action: 'imported' | 'updated' | 'noop'
+  commit: string
+  lockfileHash: string
+  fingerprintSource: 'git' | 'git-head' | 'dir-mtime'
+  ports?: { official: number; preview: number }
+  /** 本次是否实际执行了 pnpm install（git 源）。 */
+  installRan: boolean
+  smoke?: SmokeCounts
+  notes: string[]
+}
+
+/**
+ * POST /api/games/import → 导入新游戏。请求挂起至全流程完成（git clone/install
+ * 可达分钟级）；失败时 detail 可能携带 stderrTail（command_failed 场景）。
+ */
+export function importGame(params: ImportGameParams): Promise<GameSyncResult> {
+  return request('/api/games/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+}
+
+/** POST /api/games/:gameId/sync → 幂等更新（git 源 fetch+checkout；local 源重探测）。 */
+export function syncGame(gameId: string): Promise<GameSyncResult> {
+  return request(`/api/games/${encodeURIComponent(gameId)}/sync`, { method: 'POST' })
+}
+
+/**
+ * PATCH /api/games/:gameId → registry 字段（name/isDefault/source.path|ref）与
+ * manifest 高级字段（start/envInjection/schemaRoutes/roomName/trustScripts）；
+ * 只传需要变更的键；改后 sidecar 上下文重建（lazy）。
+ */
+export function patchGame(gameId: string, body: Record<string, unknown>): Promise<GameDetail> {
+  return request(`/api/games/${encodeURIComponent(gameId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/** DELETE /api/games/:gameId → 移除注册项与平台侧数据（workspaces/backups 保留）。 */
+export function deleteGame(
+  gameId: string,
+): Promise<{ gameId: string; action: 'removed'; notes: string[] }> {
+  return request(`/api/games/${encodeURIComponent(gameId)}`, { method: 'DELETE' })
+}
+
+/** 从 AdminApiError.detail 提取 command_failed 场景的 stderr 尾部（导入失败回显用）。 */
+export function extractStderrTail(detail: unknown): string | null {
+  if (typeof detail !== 'object' || detail === null) return null
+  const tail = (detail as { stderrTail?: unknown }).stderrTail
+  return typeof tail === 'string' && tail.trim() ? tail : null
 }
 
 // ---------------------------------------------------------------------------
 // 游戏观察（S7-B：liveState 观察服务契约）
 // ---------------------------------------------------------------------------
 
-/** 单条运行采样（WS live:{role} 每秒一条；REST 回填同构）。 */
+/** 单条运行采样（WS live:{gameId}:{role} 每秒一条；REST 回填同构）。 */
 export interface LiveSample {
   /** 采样时间（epoch ms） */
   ts: number
@@ -644,18 +886,18 @@ export interface LiveSample {
   entityCount: number
 }
 
-/** GET /api/live/samples 响应：samples 旧→新，环形缓冲最多 300 条。 */
+/** GET games/:gameId/live/samples 响应：samples 旧→新，环形缓冲最多 300 条。 */
 export interface LiveSamplesPayload {
   role: InstanceRole
   samples: LiveSample[]
 }
 
-/** GET /api/live/samples?role=&limit= → 指定角色的最近采样回填。 */
+/** GET games/:gameId/live/samples?role=&limit= → 指定角色的最近采样回填。 */
 export function fetchLiveSamples(role: InstanceRole, limit = 120): Promise<LiveSamplesPayload> {
-  return request<LiveSamplesPayload>(`/api/live/samples?role=${role}&limit=${limit}`)
+  return request<LiveSamplesPayload>(adminGameUrl(`live/samples?role=${role}&limit=${limit}`))
 }
 
-/** WS live:{role} 单条消息负载（每秒一条）。 */
+/** WS live:{gameId}:{role} 单条消息负载（每秒一条）。 */
 export type LiveSampleMessage = LiveSample & { role: InstanceRole }
 
 /** 校验 WS live 消息形状（字段缺失 / 类型不符时丢弃，不进缓冲）。 */

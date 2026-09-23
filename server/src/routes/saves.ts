@@ -11,15 +11,14 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { saveService } from '../services/saveService.js'
-import { handleError, ok } from './helpers.js'
+import { handleError, ok, servicesForRequest } from './helpers.js'
 
 export const savesRouter = Router()
 
 /** GET /api/saves?scope= → 列表。 */
 savesRouter.get('/', async (req: Request, res: Response) => {
   try {
-    ok(res, await saveService.list(req.query.scope))
+    ok(res, await servicesForRequest(req).save.list(req.query.scope))
   } catch (err) {
     handleError(res, err)
   }
@@ -28,7 +27,7 @@ savesRouter.get('/', async (req: Request, res: Response) => {
 /** GET /api/saves/:file/detail?scope= → 详情。 */
 savesRouter.get('/:file/detail', async (req: Request<{ file: string }>, res: Response) => {
   try {
-    ok(res, await saveService.detail(req.params.file, req.query.scope))
+    ok(res, await servicesForRequest(req).save.detail(req.params.file, req.query.scope))
   } catch (err) {
     handleError(res, err)
   }
@@ -37,7 +36,7 @@ savesRouter.get('/:file/detail', async (req: Request<{ file: string }>, res: Res
 /** DELETE /api/saves/:file?scope= → 删除。 */
 savesRouter.delete('/:file', async (req: Request<{ file: string }>, res: Response) => {
   try {
-    ok(res, await saveService.remove(req.params.file, req.query.scope))
+    ok(res, await servicesForRequest(req).save.remove(req.params.file, req.query.scope))
   } catch (err) {
     handleError(res, err)
   }
@@ -46,7 +45,7 @@ savesRouter.delete('/:file', async (req: Request<{ file: string }>, res: Respons
 /** GET /api/saves/:file/download?scope= → attachment 传输。 */
 savesRouter.get('/:file/download', async (req: Request<{ file: string }>, res: Response) => {
   try {
-    const out = await saveService.readForDownload(req.params.file, req.query.scope)
+    const out = await servicesForRequest(req).save.readForDownload(req.params.file, req.query.scope)
     res.setHeader('Content-Type', out.contentType)
     res.setHeader(
       'Content-Disposition',
@@ -61,7 +60,7 @@ savesRouter.get('/:file/download', async (req: Request<{ file: string }>, res: R
 /** POST /api/saves/:file/restore?scope= → 设为活跃存档。 */
 savesRouter.post('/:file/restore', async (req: Request<{ file: string }>, res: Response) => {
   try {
-    ok(res, await saveService.restore(req.params.file, req.query.scope))
+    ok(res, await servicesForRequest(req).save.restore(req.params.file, req.query.scope))
   } catch (err) {
     handleError(res, err)
   }

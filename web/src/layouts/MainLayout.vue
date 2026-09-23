@@ -60,6 +60,9 @@
         class="sticky top-14 z-10 h-[calc(100vh-3.5rem)] border-r-2 border-px-text bg-px-panel transition-[width] duration-200"
       >
         <div class="flex h-full flex-col overflow-hidden">
+          <!-- T2.10：游戏切换器（导航区全局组件；折叠态渲染 64px 紧凑形态） -->
+          <GameSwitcher :collapsed="isSidebarCollapsed" />
+
           <div class="flex items-center justify-between gap-2 px-3 py-3">
             <div class="min-w-0">
               <div
@@ -113,7 +116,9 @@
               class="flex-1 overflow-auto px-4 py-4"
               aria-label="主内容区"
             >
-              <RouterView />
+              <!-- T2.10：领域视图按当前管理目标 gameId 重挂载——切换游戏后各页
+                数据隔离（配合各域 store 的 epoch 失效；GamesView 自身除外） -->
+              <RouterView :key="viewKey" />
             </div>
 
             <Footer
@@ -135,6 +140,8 @@
 defineOptions({ name: 'MainLayout' })
 
 import { appInfo } from '@/config/app'
+import { useGamesStore } from '@/stores/games'
+import GameSwitcher from 'components/admin/GameSwitcher.vue'
 
 import type { MenuGroupOption, MenuOption, SubmenuOption } from '@pixelium/web-vue/es'
 import type { RouteRecordRaw } from 'vue-router'
@@ -185,6 +192,15 @@ type MenuIndex = string | number | symbol
 
 const router = useRouter()
 const route = useRoute()
+
+const gamesStore = useGamesStore()
+
+/**
+ * T2.10：领域视图的重挂载键。切换管理目标（games store 的 currentGameId）时
+ * 重新创建当前视图，视图挂载逻辑按新 gameId 重取数据；GamesView 自身管理
+ * 「正在查看的游戏」，与当前管理目标解耦，不随切换重挂载。
+ */
+const viewKey = computed(() => (route.name === 'Games' ? 'games' : gamesStore.currentGameId))
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 

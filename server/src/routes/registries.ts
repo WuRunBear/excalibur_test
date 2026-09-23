@@ -9,17 +9,17 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
 
-import { sidecar } from '../sidecar/client.js'
 import { sidecarCall } from '../sidecar/errors.js'
-import { handleError, ok } from './helpers.js'
+import { handleError, ok, servicesForRequest } from './helpers.js'
 
 export const registriesRouter = Router()
 
-registriesRouter.get('/', async (_req: Request, res: Response) => {
+registriesRouter.get('/', async (req: Request, res: Response) => {
   try {
     // payload 组装在 driver（listRegistries）；路由层只透传 + 统一错误映射
     // （SidecarError → §0.2 REST 状态码，见 sidecar/errors.ts 的 sidecarCall）。
-    ok(res, await sidecarCall(sidecar.listRegistries()))
+    // T2.7：client 从 per-game 容器解析（sidecarManager.forGame(req.gameId)）。
+    ok(res, await sidecarCall(servicesForRequest(req).sidecar().listRegistries()))
   } catch (err) {
     handleError(res, err)
   }

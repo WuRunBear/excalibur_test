@@ -16,15 +16,19 @@ import { spawn } from 'node:child_process'
 import type { ChildProcessByStdio, SpawnOptionsWithStdioTuple } from 'node:child_process'
 import type { Readable } from 'node:stream'
 
-import { rolePort } from '../config.js'
-import { defaultGameContext } from '../gameContext.js'
+import { defaultGameContext, type GameContext } from '../gameContext.js'
 import type {
   InstanceRole,
   InstanceSnapshot,
   InstanceStatus,
   ProcessSource,
 } from '../types.js'
-import { workspaceService } from './workspaceService.js'
+import { toHolder, workspaceService, type WorkspaceService } from './workspaceService.js'
+import type { ContextHolder } from './index.js'
+// ESM 循环引用：index.ts ↔ 本文件（工厂委托 servicesFor）。
+// 双方都只在函数体内使用对方导出（ESM live binding，无 TDZ 风险——
+// 与 gameContext.ts ↔ games/registry.ts 的既有模式一致）。
+import { servicesFor } from './index.js'
 
 /** POSIX 下 SIGTERM 后等待退出再升级 SIGKILL 的宽限时间。 */
 const KILL_GRACE_MS = 5_000
@@ -45,13 +49,28 @@ export type LineListener = (role: InstanceRole, source: ProcessSource, line: str
 
 const IS_WIN = process.platform === 'win32'
 
+/** 构造参数（T2.4 per-game 实例化）。 */
+export interface InstanceManagerOptions {
+  /** 所属游戏 id（进 snapshot.gameId 与 per-game 命名空间）。 */
+  gameId: string
+  /** 实例角色。 */
+  role: InstanceRole
+  /** 游戏上下文（或容器 contextHolder）：ports/envInjection/start/gameRoot 出处。 */
+  context: GameContext | ContextHolder
+  /** 同一容器的 per-game 工作区服务（preview 注入材料解析）。 */
+  workspace: Pick<WorkspaceService, 'getPreviewInjection'>
+}
+
 /**
- * 单个角色实例的管理器（official / preview 各一份）。
+ * 单个角色实例的管理器（每游戏 × official/preview 各一份）。
  *
  * 状态字段只在本类内部流转；对外仅暴露 snapshot 只读视图与回调注册。
  */
 export class InstanceManager {
+  readonly gameId: string
   readonly role: InstanceRole
+  private readonly holder: ContextHolder
+  private readonly workspace: InstanceManagerOptions['workspace']
 
   /** 游戏进程树根（stdin=ignore，stdout/stderr=pipe）。 */
   private child: ChildProcessByStdio<null, Readable, Readable> | null = null
@@ -76,8 +95,16 @@ export class InstanceManager {
   private stdoutBuf = ''
   private stderrBuf = ''
 
-  constructor(role: InstanceRole) {
-    this.role = role
+  constructor(options: InstanceManagerOptions) {
+    this.gameId = options.gameId
+    this.role = options.role
+    this.holder = toHolder(options.context)
+    this.workspace = options.workspace
+  }
+
+  /** 当前上下文（容器热更新后自动生效）。 */
+  private get ctx(): GameContext {
+    return this.holder.current
   }
 
   // ---------------------------------------------------------------------------
@@ -96,14 +123,15 @@ export class InstanceManager {
     return () => this.lineListeners.delete(cb)
   }
 
-  /** 当前状态快照（只读视图）。 */
+  /** 当前状态快照（只读视图；port/gameId 均按调用时点的 context/gameId 读取）。 */
   get snapshot(): InstanceSnapshot {
     return {
+      gameId: this.gameId,
       role: this.role,
       status: this.status,
       pid: this.pid,
       startedAt: this.startedAt,
-      port: rolePort(this.role),
+      port: this.ctx.ports[this.role],
       lastExitCode: this.lastExitCode,
       lastSignal: this.lastSignal,
       // official 恒 null；preview 保留最近一次启动的注入值（crash 后不清空）
@@ -117,41 +145,47 @@ export class InstanceManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * 启动实例。starting/running 状态下重复调用抛 ConflictError（REST → 409）。
-   * resolve 时 spawn 已发起；starting → running 由子进程 'spawn' 事件异步完成。
+   * 组装 spawn 材料：env 注入（S3-A）+ cwd/命令/参数。**不产生任何副作用**
+   * （不 spawn、不改实例状态），供 start() 与单测共用（验证注入公式而不真正
+   * 拉起进程）：
+   * - official：纯继承管理后端环境，不注入任何变量（恒回退本体配置）。
+   * - preview：注入变量名/值出自 context.envInjection 与 context.ports.preview
+   *   （T2.4 per-game 出处）；若此刻存在活动工作区，再注入 configPath/saveDir
+   *   （工作区 game.json 绝对路径与 .preview-saves）。游戏进程 dotenv 不覆盖
+   *   已注入变量，因此注入值优先于本体 .env。
    */
-  async start(): Promise<InstanceSnapshot> {
-    if (this.status === 'starting' || this.status === 'running') {
-      throw new ConflictError(`instance "${this.role}" is ${this.status}; stop it first`)
-    }
-
-    // 环境注入（S3-A）：
-    // - official：纯继承管理后端环境，不注入任何变量（恒回退本体配置）。
-    // - preview：PORT=3200 恒注入；若此刻存在活动工作区，再注入
-    //   GAME_CONFIG_PATH（工作区 game.json 绝对路径）与 SAVE_DIR（工作区
-    //   .preview-saves，自动创建）。在 spawn 前动态解析（非模块加载时固化），
-    //   保证每次 start 都使用当前活动工作区。游戏进程 dotenv 不覆盖已注入
-    //   变量，因此注入值优先于本体 .env。
+  private async buildSpawnPlan(): Promise<{
+    role: InstanceRole
+    cwd: string
+    env: NodeJS.ProcessEnv
+    command: string
+    args: string[]
+    options: SpawnOptionsWithStdioTuple<'ignore', 'pipe', 'pipe'>
+    configPath: string | null
+    saveDir: string | null
+  }> {
+    const ctx = this.ctx
     const env: NodeJS.ProcessEnv = { ...process.env }
+    let configPath: string | null = null
+    let saveDir: string | null = null
+
     if (this.role === 'preview') {
       // 注入变量名出自 context.envInjection；PORT 值恒为 preview 展示端口。
-      env[defaultGameContext.envInjection.port] = String(defaultGameContext.ports.preview)
-      const injection = await workspaceService.getPreviewInjection()
+      env[ctx.envInjection.port] = String(ctx.ports.preview)
+      const injection = await this.workspace.getPreviewInjection()
       if (injection) {
-        env[defaultGameContext.envInjection.configPath] = injection.configPath
-        env[defaultGameContext.envInjection.saveDir] = injection.saveDir
-        this.configPath = injection.configPath
-        this.saveDir = injection.saveDir
+        env[ctx.envInjection.configPath] = injection.configPath
+        env[ctx.envInjection.saveDir] = injection.saveDir
+        configPath = injection.configPath
+        saveDir = injection.saveDir
       } else {
         // 回退现状（S1-C 行为）：仅注入 PORT，游戏进程用本体配置。
-        this.configPath = null
-        this.saveDir = null
-        console.warn('[instance:preview] 无活动工作区，回退本体配置（仅注入 PORT）')
+        console.warn(`[instance:${this.gameId}:${this.role}] 无活动工作区，回退本体配置（仅注入 PORT）`)
       }
     }
 
     const spawnOptions: SpawnOptionsWithStdioTuple<'ignore', 'pipe', 'pipe'> = {
-      cwd: defaultGameContext.gameRoot,
+      cwd: ctx.gameRoot,
       env,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -165,14 +199,33 @@ export class InstanceManager {
     }
 
     // 启动命令/参数出自 context.start（win32 的 pnpm → pnpm.cmd 平台适配留在本文件）。
-    const command = IS_WIN ? 'pnpm.cmd' : defaultGameContext.start.command
-    const child = spawn(command, defaultGameContext.start.args, spawnOptions)
+    const command = IS_WIN ? 'pnpm.cmd' : ctx.start.command
+    return { role: this.role, cwd: ctx.gameRoot, env, command, args: [...ctx.start.args], options: spawnOptions, configPath, saveDir }
+  }
+
+  /**
+   * 启动实例。starting/running 状态下重复调用抛 ConflictError（REST → 409）。
+   * resolve 时 spawn 已发起；starting → running 由子进程 'spawn' 事件异步完成。
+   */
+  async start(): Promise<InstanceSnapshot> {
+    if (this.status === 'starting' || this.status === 'running') {
+      throw new ConflictError(`instance "${this.role}" is ${this.status}; stop it first`)
+    }
+
+    // 环境注入（S3-A）在 buildSpawnPlan 内完成（spawn 前动态解析，保证每次
+    // start 都使用当前活动工作区与当前 context）。
+    const plan = await this.buildSpawnPlan()
+
+    const child = spawn(plan.command, plan.args, plan.options)
 
     this.child = child
     this.stopping = false
     this.settled = false
     this.stdoutBuf = ''
     this.stderrBuf = ''
+    // 注入值落 snapshot 字段（official 恒 null；preview crash 后保留）
+    this.configPath = plan.role === 'preview' ? plan.configPath : null
+    this.saveDir = plan.role === 'preview' ? plan.saveDir : null
     // child.pid 在 spawn() 返回时即已分配（失败则 undefined），立即记录供 stop() 使用。
     this.pid = child.pid ?? null
     this.startedAt = Date.now()
@@ -356,14 +409,45 @@ export class InstanceManager {
   }
 }
 
-/** 双角色管理器单例。 */
+/**
+ * 双角色管理器单例（compat 壳，T2.4）。
+ *
+ * 绑定 defaultGameContext（≡ forGame('gst') 语义）+ workspaceService 单例，
+ * 不依赖 registry 播种（模块加载零风险）。index.ts 的启动接线（onStateChange →
+ * wsHub/liveState、onLine → logStream）仍接本记录；servicesFor('gst')（缺省
+ * options）返回的容器复用**同一批实例**，保证 T2.7 路由切换时零状态分叉。
+ * per-game 实例（gst2 等）经 getInstanceManager(gameId, role) / servicesFor 创建。
+ */
 export const instanceManagers: Record<InstanceRole, InstanceManager> = {
-  official: new InstanceManager('official'),
-  preview: new InstanceManager('preview'),
+  official: new InstanceManager({
+    gameId: defaultGameContext.gameId,
+    role: 'official',
+    context: defaultGameContext,
+    workspace: workspaceService,
+  }),
+  preview: new InstanceManager({
+    gameId: defaultGameContext.gameId,
+    role: 'preview',
+    context: defaultGameContext,
+    workspace: workspaceService,
+  }),
 }
 
-/** 按角色取管理器。 */
-export function getInstanceManager(role: InstanceRole): InstanceManager {
+/**
+ * 按游戏 + 角色取管理器（T2.4 工厂）。
+ * - 双参形式：经 servicesFor(gameId) 容器解析（幂等缓存，与
+ *   servicesFor(gameId).instances[role] 同一实例）；游戏未注册 → 抛
+ *   GameContextError（T2.7 映射 404）。
+ * - 单参形式（compat 重载）：= 双参 (defaultGameContext.gameId, role)，
+ *   即 instanceManagers 单例记录（绑定 'gst' 语义），routes 层过渡期零改动。
+ */
+export function getInstanceManager(gameId: string, role: InstanceRole): InstanceManager
+export function getInstanceManager(role: InstanceRole): InstanceManager
+export function getInstanceManager(a: string | InstanceRole, b?: InstanceRole): InstanceManager {
+  if (typeof a === 'string' && b !== undefined) {
+    return servicesFor(a).instances[b]
+  }
+  const role = b ?? (a as InstanceRole)
   return instanceManagers[role]
 }
 

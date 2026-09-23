@@ -2,16 +2,17 @@
  * 实例管理 store（S1-D2）。
  *
  * - 持有 official / preview 双实例快照；
- * - 订阅 WS 'instance:state' 频道实时更新（断线指数退避重连由 api 层封装）；
+ * - 订阅 WS 'instance:state:{gameId}' 频道实时更新（断线指数退避重连由 api 层封装）；
  *   WS 不可用时自动降级为 5s 轮询 REST 兜底，重连成功后停止轮询并立即拉取一次；
  * - start / stop / restart action：乐观状态 + 失败回滚，反馈走 ElMessage。
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { ElMessage } from 'element-plus'
 
 import {
   AdminApiError,
+  channelInstanceState,
   fetchInstances,
   INSTANCE_ROLE_LABELS,
   restartInstance,
@@ -20,6 +21,7 @@ import {
   subscribeAdminChannel,
 } from '@/api/admin'
 import type { InstanceRole, InstanceSnapshot } from '@/api/admin'
+import { useGamesStore } from '@/stores/games'
 
 /** 实例操作名。 */
 export type InstanceActionName = 'start' | 'stop' | 'restart'
@@ -30,7 +32,7 @@ export type AdminConnectionState = 'connecting' | 'online' | 'polling'
 /** WS 不可用时的 REST 轮询间隔。 */
 const POLL_INTERVAL_MS = 5000
 
-/** WS 负载校验：instance:state 频道广播单角色 InstanceSnapshot。 */
+/** WS 负载校验：instance:state:{gameId} 频道广播单角色 InstanceSnapshot。 */
 function isInstanceSnapshot(value: unknown): value is InstanceSnapshot {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
@@ -120,7 +122,7 @@ export const useInstanceStore = defineStore('admin-instance', () => {
     return p.start || p.stop || p.restart
   }
 
-  /** WS 状态推送修订号：每落地一条 instance:state 递增，用于识别 REST 请求在途期间的更新。 */
+  /** WS 状态推送修订号：每落地一条 instance:state 推送递增，用于识别 REST 请求在途期间的更新。 */
   const wsRevision: Record<InstanceRole, number> = { official: 0, preview: 0 }
 
   /**
@@ -188,7 +190,7 @@ export const useInstanceStore = defineStore('admin-instance', () => {
   /** 建立 WS 状态流（幂等）；断线自动重连，重连前降级为轮询。 */
   function connectStateStream(): void {
     if (socketHandle) return
-    socketHandle = subscribeAdminChannel('instance:state', {
+    socketHandle = subscribeAdminChannel(channelInstanceState(), {
       onMessage: (payload) => {
         if (!isInstanceSnapshot(payload)) return
         wsRevision[payload.role] += 1
@@ -215,6 +217,17 @@ export const useInstanceStore = defineStore('admin-instance', () => {
     loadAttempted = false
     connection.value = 'connecting'
   }
+
+  // T2.10：管理目标切换（games.epoch 自增）→ 释放旧 gameId 的 WS/轮询并清空快照；
+  // 领域视图经 RouterView 按 gameId 重挂载，挂载时 ensureLoaded 以新 gameId 重取。
+  const gamesStore = useGamesStore()
+  watch(
+    () => gamesStore.epoch,
+    () => {
+      dispose()
+      snapshots.value = { official: null, preview: null }
+    },
+  )
 
   return {
     snapshots,
