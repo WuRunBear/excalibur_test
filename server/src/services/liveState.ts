@@ -17,6 +17,15 @@
  * 每次采样写入 300 条/role 环形缓冲（无订阅者也持续采样，供回填）并广播到
  * ws 频道 live:{gameId}:{role}（T2.4 公式；hub 白名单改版在 T2.7）。
  *
+ * R-clone 根因修复（生产事故）：admin 进程曾因对 RoomState 的深拷贝采样崩溃
+ * （RangeError: Maximum call stack size exceeded，栈全在 @colyseus/schema 4.0.26
+ * 内部：Schema.clone ↔ MapSchema.clone 无限互递归——实例长跑后状态持续增长，
+ * 嵌套 MapSchema 深度超出栈容量）。因此采样实现为**崩溃安全的浅层提取**：
+ * - 只做字段直读 + 顶层 MapSchema.forEach（浅遍历，绝不 descend 进子容器）；
+ * - 绝不调用 schema 对象的 clone()/toJSON()/JSON.stringify（见 extractSampleFields）；
+ * - 每层 try/catch + 深度/条目上限保护；单次采样失败 → 丢弃该帧并记日志，
+ *   异常绝不逃逸出采样定时器（setInterval 回调内同步 throw 会杀死进程）。
+ *
  * T2.4 per-game 实例化：每游戏一个 LiveStateService 实例（servicesFor(gameId).live），
  * 内部态 Map 的 key 一律 `<gameId>:<role>`；roomName 读自各自 context
  * （manifest.observer.roomName 合成而来）。
@@ -34,20 +43,154 @@ import { wsHub } from '../ws/hub.js'
 /**
  * 房间状态的最小结构视图（schema-less 观察见 gameBridge/index.ts 头注释）。
  * @colyseus/sdk 0.17 按服务端下发的 schema spec 动态解码，无需编译好的
- * schema 类；这里只声明采样用到的字段形状。
+ * schema 类；采样只认以下字段，且一律走 extractSampleFields 的浅层提取。
+ * （原 RoomStateView 静态接口已移除：深拷贝事故后不再依赖整体形状假设，
+ *  改为鸭子类型逐层直读——见 extractSampleFields / isForEachable。）
  */
-interface RoomStateView {
-  tick: number
-  players: {
-    size: number
-    get(sessionId: string):
-      | {
-          entityId: number
-          mapId: string
-          visibleEntities: { size: number }
-        }
-      | undefined
+
+// ---------------------------------------------------------------------------
+// 采样提取（R-clone 根因修复：崩溃安全的浅层提取，导出供回归单测）
+// ---------------------------------------------------------------------------
+
+/** 单个 MapSchema 形容器的最大遍历深度（state→players→me→visibleEntities 理论深度 ≤ 3）。 */
+export const SAMPLE_MAX_DEPTH = 3
+/** 单个容器的最大遍历条目数（防畸形/超大数据把 1s 采样间隔拖成阻塞）。 */
+export const SAMPLE_MAX_ENTRIES = 100_000
+
+/**
+ * 单帧采样失败的内部信号。extractSampleFields 对"状态已就绪但读取异常"
+ * （形状漂移、decoder 损坏、getter 抛错、条目超限…）统一抛出本错误，
+ * 由 LiveStateService.sample() 捕获后丢弃该帧——绝不让异常逃逸。
+ */
+export class SampleFrameError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SampleFrameError'
   }
+}
+
+/** 一次成功采样提取出的字段（LiveSample 的最小来源形状）。 */
+export interface SampleFields {
+  /** 房间状态 tick */
+  tick: number
+  /** 观察者 PlayerState.visibleEntities 的条目数 */
+  entityCount: number
+}
+
+/**
+ * 鸭子类型判断"MapSchema 形"容器：只要求有 forEach 函数。
+ * 刻意不 import @colyseus/schema 做 instanceof——schema-less 解码下形状
+ * 动态生成，且跨模块实例（sdk 打包副本 vs 直接依赖）instanceof 不可靠。
+ */
+export function isForEachable(value: unknown): value is { forEach(cb: (value: unknown, key: unknown) => void): void } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { forEach?: unknown }).forEach === 'function'
+  )
+}
+
+/**
+ * 崩溃安全的字段直读：f 抛出的任何异常转译为 SampleFrameError（保留原消息）。
+ * 样本提取的每一层都经由此包裹——单层失败不会以原始异常形式逃逸。
+ */
+function readField<T>(label: string, f: () => T): T {
+  try {
+    return f()
+  } catch (err) {
+    if (err instanceof SampleFrameError) throw err
+    throw new SampleFrameError(`${label} 读取失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/**
+ * 浅计数：只遍历容器顶层条目（绝不 descend 进任何子值），带条目上限与
+ * 深度上限保护。用于 visibleEntities 无可靠 size 时的退化路径。
+ * （导出供回归单测直接钉住深度上限守卫。）
+ */
+export function shallowCount(container: { forEach(cb: (value: unknown, key: unknown) => void): void }, label: string, depth: number): number {
+  if (depth > SAMPLE_MAX_DEPTH) {
+    throw new SampleFrameError(`${label} 遍历深度超上限（${depth} > ${SAMPLE_MAX_DEPTH}）`)
+  }
+  let n = 0
+  readField(`${label}.forEach`, () =>
+    container.forEach(() => {
+      if (++n > SAMPLE_MAX_ENTRIES) {
+        throw new SampleFrameError(`${label} 条目数超上限（>${SAMPLE_MAX_ENTRIES}）`)
+      }
+    }),
+  )
+  return n
+}
+
+/**
+ * 从 RoomState 提取采样字段（R-clone 根因修复核心）。
+ *
+ * 安全性质：
+ * - **绝不调用 schema 对象的 clone()/toJSON()，绝不对 schema 做 JSON.stringify /
+ *   structuredClone**——旧 admin 进程即因整棵状态的深拷贝采样在
+ *   @colyseus/schema 4.0.26 的 Schema.clone ↔ MapSchema.clone 无限互递归中
+ *   栈溢出崩溃（实例长跑后嵌套 MapSchema 深度超出栈容量）。
+ * - 只做字段直读 + 顶层 MapSchema.forEach：可达深度有界（≤ SAMPLE_MAX_DEPTH），
+ *   与状态规模/嵌套深度无关，实例长跑多久都不会爆栈。
+ * - 每层 try/catch（readField）+ 条目上限（SAMPLE_MAX_ENTRIES）+ 深度上限；
+ *   任何一层异常 → 抛 SampleFrameError，由 sample() 丢弃该帧。
+ *
+ * @param state      room.state（schema-less 动态解码对象，形状不可信）
+ * @param sessionId  观察者自己的 sessionId（join 时游戏为其创建的实体 key）
+ * @throws SampleFrameError 状态已就绪但任一层读取失败/形状非法/超限
+ */
+export function extractSampleFields(state: unknown, sessionId: string): SampleFields {
+  // 层 0：state 与 tick 直读
+  if (typeof state !== 'object' || state === null) {
+    throw new SampleFrameError('state 不是对象')
+  }
+  const record = state as Record<string, unknown>
+  const tick = readField('state.tick', () => record.tick)
+  if (typeof tick !== 'number' || !Number.isFinite(tick)) {
+    throw new SampleFrameError(`state.tick 非法: ${String(tick)}`)
+  }
+
+  // 层 1：players 顶层 MapSchema 浅遍历找观察者实体。
+  // 刻意用 forEach 而非 .get()：forEach 只触达 $items 顶层，不递归子节点；
+  // 且对"其他玩家"的值零访问——它们的子树再深/再畸形也与本采样无关。
+  const players = readField('state.players', () => record.players)
+  if (!isForEachable(players)) {
+    throw new SampleFrameError('state.players 不是可遍历容器（MapSchema 形）')
+  }
+  let me: unknown
+  let scanned = 0
+  readField('players.forEach', () =>
+    players.forEach((value: unknown, key: unknown) => {
+      if (me !== undefined) return
+      if (++scanned > SAMPLE_MAX_ENTRIES) {
+        throw new SampleFrameError(`players 条目数超上限（>${SAMPLE_MAX_ENTRIES}）`)
+      }
+      if (key === sessionId) me = value
+    }),
+  )
+
+  // 观察者实体尚未就位（初始同步 / 实体重建窗口）：保持旧语义，entityCount=0
+  if (me === undefined) return { tick, entityCount: 0 }
+
+  // 层 2：观察者 PlayerState 字段直读 + visibleEntities 浅读
+  const entityCount = readField('me.visibleEntities', () => {
+    if (typeof me !== 'object' || me === null) {
+      throw new SampleFrameError('观察者实体不是对象')
+    }
+    const visibleEntities = (me as Record<string, unknown>).visibleEntities
+    if (visibleEntities === undefined || visibleEntities === null) return 0
+    // MapSchema.size 是 O(1) 的 $items.size 直读——优先走它
+    const size = (visibleEntities as { size?: unknown }).size
+    if (typeof size === 'number' && Number.isFinite(size)) return size
+    // 退化路径：无 size / size 非数字 → 浅计数（只数顶层条目，带上限）
+    if (isForEachable(visibleEntities)) {
+      return shallowCount(visibleEntities, 'visibleEntities', 3)
+    }
+    throw new SampleFrameError('me.visibleEntities 形状非法（既无 size 也不可遍历）')
+  })
+
+  return { tick, entityCount }
 }
 
 /** 环形缓冲容量（每 role）。 */
@@ -266,16 +409,28 @@ export class LiveStateService {
 
   private sample(key: string, role: InstanceRole): void {
     const room = this.rooms.get(key)
-    if (!room || !room.state) return // 首次状态同步未完成
+    if (!room) return
+    const state: unknown = room.state
+    // 初始状态同步未完成（state/players 未就绪）：静默跳过本拍（保持旧语义，不刷日志）
+    if (!state || typeof state !== 'object' || !isForEachable((state as Record<string, unknown>).players)) {
+      return
+    }
+    // R-clone 根因修复：崩溃安全浅层提取（绝不 clone/toJSON 整棵 schema）。
+    // 提取失败 → 丢弃该帧；且刻意放在 rate 窗口改写之前——残帧不污染速率统计。
+    let tick: number
+    let entityCount: number
     try {
-      const state = room.state as unknown as RoomStateView | undefined
-      // 初始状态同步未完成时 players 可能尚未就位：跳过本拍
-      if (!state || !state.players) return
-      const tick = state.tick
-      // 观察者自己的 PlayerState（join 时游戏为其创建的实体）
-      const me = state.players.get(room.sessionId)
-      const entityCount = me ? me.visibleEntities.size : 0
-
+      const fields = extractSampleFields(state, room.sessionId)
+      tick = fields.tick
+      entityCount = fields.entityCount
+    } catch (err) {
+      console.error(
+        `[liveState:${key}] sample failed — 丢弃该帧:`,
+        err instanceof Error ? err.message : err,
+      )
+      return
+    }
+    try {
       // tickRate：瞬时速率的滑动平均
       const now = Date.now()
       const prevTick = this.lastTick.get(key)
@@ -307,9 +462,11 @@ export class LiveStateService {
       ring.push(sample)
       if (ring.length > RING_CAPACITY) ring.splice(0, ring.length - RING_CAPACITY)
       // T2.4 频道公式：live:{gameId}:{role}（hub 白名单改版在 T2.7，见 liveChannel 注释）
+      // broadcast 载荷是纯数字/字符串的普通对象（非 schema 对象），hub 内
+      // JSON.stringify 深度为 1，不存在递归序列化风险。
       wsHub.broadcast(liveChannel(this.ctx.gameId, role) as WsChannel, sample)
     } catch (err) {
-      // 旁路容错：采样异常只记日志
+      // 旁路容错：采样异常只记日志（双保险——extractSampleFields 已不应抛出非 SampleFrameError）
       console.error(`[liveState:${key}] sample failed:`, err instanceof Error ? err.message : err)
     }
   }
