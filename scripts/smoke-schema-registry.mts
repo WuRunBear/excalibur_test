@@ -4,9 +4,9 @@
  *
  * sidecar 目录不被 server tsconfig 覆盖（include 只有 src），故用运行时冒烟代替
  * 编译期校验（仿 scripts/spike-jsdoc-schema.mts 先例）：
- *   1. 从本体 schema 文件按绝对 file URL 组装 SCHEMA_TABLE 的 8 个 kind（与 driver
+ *   1. 从本体 schema 文件按绝对 file URL 组装 SCHEMA_TABLE 的 16 个 kind（与 driver
  *      SCHEMA_TABLE 同源实例）；
- *   2. buildSchemaRegistry → 8 kind 全部对齐成功，打印各 kind 对齐告警数；
+ *   2. buildSchemaRegistry → 16 kind 全部对齐成功，打印各 kind 对齐告警数；
  *   3. schemaToJson 每个 kind → 断言输出为 JSON Schema（type=object、无 $defs），
  *      并抽查 description 注入（tickRate / world.tile.width / kind）；
  *   4. config-index 抽取逻辑对本体仓 game/ 目录跑一遍，打印条目数与样例并对照真实
@@ -36,7 +36,6 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..')
 const GAME_ROOT = process.env.GAME_ROOT
   ? path.resolve(process.env.GAME_ROOT)
   : path.resolve(REPO_ROOT, '..', 'game_server_test')
-const SCHEMA_DIR = path.join(GAME_ROOT, 'framework', 'config', 'schema')
 
 // 模仿 client.ts:14-17 的 spawn 注入（tsx tsconfig + cwd=GAME_ROOT）
 process.env.TSX_TSCONFIG_PATH = path.join(GAME_ROOT, 'tsconfig.json')
@@ -52,16 +51,27 @@ function check(cond: boolean, label: string, detail = ''): void {
   if (!cond) failures.push(label)
 }
 
-/** kind → 源文件名 + 根导出名（与 server/sidecar/schemaDescribe.ts KIND_SOURCES 对齐）。 */
-const SOURCES: Record<string, { file: string; exportName: string }> = {
-  GameDefinition: { file: 'GameDefinitionSchema.ts', exportName: 'GameDefinitionSchema' },
-  Archetype: { file: 'ArchetypeSchema.ts', exportName: 'ArchetypeSchema' },
-  MapRegistry: { file: 'MapRegistrySchema.ts', exportName: 'MapRegistrySchema' },
-  combat: { file: 'RuleSchema.ts', exportName: 'CombatRuleSchema' },
-  needs: { file: 'RuleSchema.ts', exportName: 'NeedsRuleSchema' },
-  crafting: { file: 'RuleSchema.ts', exportName: 'CraftingRuleSchema' },
-  daynight: { file: 'RuleSchema.ts', exportName: 'DayNightRuleSchema' },
-  server: { file: 'RuleSchema.ts', exportName: 'ServerRuleSchema' },
+/**
+ * kind → 源文件（GAME_ROOT 相对路径）+ 根导出名（与 server/sidecar/schemaDescribe.ts
+ * KIND_SOURCES 对齐）。前 8 个为既有，后 8 个为 P5 §1.3 新增。
+ */
+const SOURCES: Record<string, { rel: string; exportName: string }> = {
+  GameDefinition: { rel: 'framework/config/schema/GameDefinitionSchema.ts', exportName: 'GameDefinitionSchema' },
+  Archetype: { rel: 'framework/config/schema/ArchetypeSchema.ts', exportName: 'ArchetypeSchema' },
+  MapRegistry: { rel: 'framework/config/schema/MapRegistrySchema.ts', exportName: 'MapRegistrySchema' },
+  combat: { rel: 'framework/config/schema/RuleSchema.ts', exportName: 'CombatRuleSchema' },
+  needs: { rel: 'framework/config/schema/RuleSchema.ts', exportName: 'NeedsRuleSchema' },
+  crafting: { rel: 'framework/config/schema/RuleSchema.ts', exportName: 'CraftingRuleSchema' },
+  daynight: { rel: 'framework/config/schema/RuleSchema.ts', exportName: 'DayNightRuleSchema' },
+  server: { rel: 'framework/config/schema/RuleSchema.ts', exportName: 'ServerRuleSchema' },
+  items: { rel: 'framework/config/schema/ItemKindSchema.ts', exportName: 'ItemKindSchema' },
+  dialogues: { rel: 'framework/config/schema/DialogueSchema.ts', exportName: 'DialogueRegistrySchema' },
+  quests: { rel: 'framework/config/schema/QuestSchema.ts', exportName: 'QuestRegistrySchema' },
+  ecosystems: { rel: 'framework/config/schema/EcosystemsSchema.ts', exportName: 'EcosystemsSchema' },
+  behaviors: { rel: 'framework/config/schema/BehaviorSchema.ts', exportName: 'BehaviorSchema' },
+  player: { rel: 'framework/config/schema/PlayerRuleSchema.ts', exportName: 'PlayerRuleSchema' },
+  raid: { rel: 'framework/config/schema/RuleSchema.ts', exportName: 'RaidRuleSchema' },
+  entityRules: { rel: 'framework/map/evolution/schema.ts', exportName: 'EntityRulesDocumentSchema' },
 }
 
 interface SchemaAlignReport {
@@ -84,9 +94,9 @@ async function main(): Promise<void> {
   // ---- 1) 组装 SCHEMA_TABLE（绝对 file URL 导入 = 同源实例） ----
   const schemaTable: Record<string, unknown> = {}
   for (const [kind, src] of Object.entries(SOURCES)) {
-    const mod = (await import(pathToFileURL(path.join(SCHEMA_DIR, src.file)).href)) as Record<string, unknown>
+    const mod = (await import(pathToFileURL(path.join(GAME_ROOT, src.rel)).href)) as Record<string, unknown>
     const schema = mod[src.exportName]
-    if (!schema) throw new Error(`${src.file} 未导出 ${src.exportName}`)
+    if (!schema) throw new Error(`${src.rel} 未导出 ${src.exportName}`)
     schemaTable[kind] = schema
   }
   console.log(`\n[smoke] SCHEMA_TABLE 装配：${Object.keys(schemaTable).length} kind`)
@@ -122,10 +132,10 @@ async function main(): Promise<void> {
   console.log(`[smoke] 全局对齐告警 ${warnings.length} 条${warnings.length ? '：' : ''}`)
   for (const w of warnings.slice(0, 20)) console.log(`    · ${w}`)
 
-  check(reports.length === Object.keys(SOURCES).length, `8 个 kind 全部产出对齐报告`, `reports=${reports.length}`)
+  check(reports.length === Object.keys(SOURCES).length, `16 个 kind 全部产出对齐报告`, `reports=${reports.length}`)
   check(reports.every((r) => r.attachments > 0), '每个 kind 至少注入 1 条 description')
 
-  // ---- 3) schemaToJson（8 kind） ----
+  // ---- 3) schemaToJson（16 kind） ----
   console.log('\n[smoke] schemaToJson 输出：')
   for (const kind of Object.keys(SOURCES)) {
     try {
@@ -142,13 +152,23 @@ async function main(): Promise<void> {
   // 抽查 description 注入（证明 registry 按实例身份生效）
   const gd = schemaToJson(schemaTable.GameDefinition, registry, { gameRoot: GAME_ROOT })
   const arch = schemaToJson(schemaTable.Archetype, registry, { gameRoot: GAME_ROOT })
+  const itemsJson = schemaToJson(schemaTable.items, registry, { gameRoot: GAME_ROOT })
+  const ecosystemsJson = schemaToJson(schemaTable.ecosystems, registry, { gameRoot: GAME_ROOT })
+  const behaviorsJson = schemaToJson(schemaTable.behaviors, registry, { gameRoot: GAME_ROOT })
   const tickRate = gd?.properties?.tickRate?.description
   const tileWidth = gd?.properties?.world?.properties?.tile?.properties?.width?.description
   const archKind = arch?.properties?.kind?.description
+  const itemKind = itemsJson?.properties?.kind?.description
+  const ecosystemEntry = ecosystemsJson?.properties?.ecosystems?.description
+  const behaviorId = behaviorsJson?.properties?.id?.description
   console.log('\n[smoke] description 抽查：')
   check(typeof tickRate === 'string' && tickRate.includes('逻辑 tick'), 'GameDefinition.tickRate 描述', JSON.stringify(tickRate))
   check(typeof tileWidth === 'string' && tileWidth.includes('tile 宽度'), 'GameDefinition.world.tile.width 描述', JSON.stringify(tileWidth))
   check(typeof archKind === 'string' && archKind.includes('原型唯一标识'), 'Archetype.kind 描述', JSON.stringify(archKind))
+  // P5 §1.3 新增 kind 的 description 抽查
+  check(typeof itemKind === 'string' && itemKind.includes('item 种类'), 'items.kind 描述', JSON.stringify(itemKind))
+  check(typeof ecosystemEntry === 'string' && ecosystemEntry.includes('生态条目表'), 'ecosystems.ecosystems 描述', JSON.stringify(ecosystemEntry))
+  check(typeof behaviorId === 'string' && behaviorId.includes('行为树 id'), 'behaviors.id 描述', JSON.stringify(behaviorId))
 
   // ---- 4) config-index 抽取（本体仓 game/） ----
   console.log('\n[smoke] config-index 抽取：')
@@ -161,9 +181,12 @@ async function main(): Promise<void> {
       schemaKindOf?: (rel: string) => string | null,
     ) => Promise<{ items: string[]; dialogues: string[]; quests: string[]; mapKeys: string[]; archetypes: string[] }>
   }
-  const { routeSchemaKind } = (await import(
+  const { routeSchemaKind, routeFormSchemaKind } = (await import(
     pathToFileURL(path.join(REPO_ROOT, 'server', 'src', 'services', 'configService.ts')).href
-  )) as { routeSchemaKind: (rel: string) => string | null }
+  )) as {
+    routeSchemaKind: (rel: string, context?: unknown) => string | null
+    routeFormSchemaKind: (rel: string, context?: unknown) => string | null
+  }
 
   const gameDir = path.join(GAME_ROOT, 'game')
   const tree = buildTree(gameDir, '')
@@ -193,12 +216,25 @@ async function main(): Promise<void> {
   check(index.items.length === itemFiles, `items 覆盖全部 ${itemFiles} 个 item 文件`, `got=${index.items.length}`)
   check(index.archetypes.length === entityFiles && index.archetypes.includes('wolf'), `archetypes 覆盖全部 ${entityFiles} 个实体文件且含 wolf`, `got=${index.archetypes.length}`)
 
+  // ---- 4b) 表单 kind 元数据路由（P5 §1.3；校验分发表零改动） ----
+  console.log('\n[smoke] 表单 kind 元数据路由：')
+  check(routeSchemaKind('items/axe.json') === null, 'routeSchemaKind(items/*) 仍为 null（校验分发零改动）')
+  check(routeFormSchemaKind('items/axe.json') === 'items', 'routeFormSchemaKind(items/*)=items')
+  check(routeSchemaKind('rules/player.json') === null, 'routeSchemaKind(rules/player.json) 仍为 null')
+  check(routeFormSchemaKind('rules/player.json') === 'player', 'routeFormSchemaKind(rules/player.json)=player')
+  check(routeFormSchemaKind('rules/raid.json') === 'raid', 'routeFormSchemaKind(rules/raid.json)=raid')
+  check(routeFormSchemaKind('maps/entity-rules.json') === 'entityRules', 'routeFormSchemaKind(maps/entity-rules.json)=entityRules')
+  check(routeFormSchemaKind('game.json') === 'GameDefinition', 'routeFormSchemaKind(game.json)=GameDefinition（校验路由优先）')
+  check(routeFormSchemaKind('rules/combat.json') === 'combat', 'routeFormSchemaKind(rules/combat.json)=combat')
+  check(routeFormSchemaKind('rules/place.json') === null, 'routeFormSchemaKind(rules/place.json)=null（未登记 schema）')
+
   // ---- 5) driver 端到端（A5-2 + getSchema/listRegistries） ----
   console.log('\n[smoke] driver 端到端（spawn：cwd=GAME_ROOT + TSX_TSCONFIG_PATH）：')
   const driverRun = await runDriverRpc([
     { id: 1, method: 'ping', params: {} },
     { id: 2, method: 'getSchema', params: { kind: 'GameDefinition' } },
     { id: 3, method: 'listRegistries', params: {} },
+    { id: 4, method: 'getSchema', params: { kind: 'items' } },
   ])
 
   const pingFrame = driverRun.frames.get(1)
@@ -209,6 +245,15 @@ async function main(): Promise<void> {
   const driverSchema = schemaFrame?.result?.jsonSchema
   check(schemaFrame?.ok === true && driverSchema?.type === 'object', 'driver getSchema(GameDefinition) 返回 object schema')
   check(typeof driverSchema?.properties?.tickRate?.description === 'string', 'driver getSchema 携带 JSDoc description')
+
+  const newSchemaFrame = driverRun.frames.get(4)
+  const driverItemsSchema = newSchemaFrame?.result?.jsonSchema
+  check(newSchemaFrame?.ok === true && driverItemsSchema?.type === 'object', 'driver getSchema(items) 返回 object schema')
+  check(
+    typeof driverItemsSchema?.properties?.kind?.description === 'string' &&
+      driverItemsSchema.properties.kind.description.includes('item 种类'),
+    'driver getSchema(items) 携带 JSDoc description',
+  )
 
   const regFrame = driverRun.frames.get(3)
   const reg = regFrame?.result

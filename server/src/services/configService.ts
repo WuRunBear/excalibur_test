@@ -10,6 +10,10 @@
  *     maps/registry.json        → MapRegistry
  *     rules/{combat,needs,crafting,daynight,server}.json → 对应规则名
  *     其余                      → null（不校验，PUT 视为通过）
+ *   P5 §1.3：items/dialogues/quests/behaviors、maps/entity-rules.json、
+ *   ecosystems.json、rules/{player,raid}.json 另经 routeFormSchemaKind 附加
+ *   **只读元数据 kind**（点亮前端表单模式）；它们不进入校验路由表，PUT/apply
+ *   的校验分发与行为零改动（详见 routeFormSchemaKind 注释）。
  *   形态适配说明（S2-A 探针实测）：本体 entities/*.json 每文件为**单个 Archetype
  *   对象**（loadArchetypesFiles 逐文件 ArchetypeSchema.parse(raw)），wolf.json 直接
  *   safeParse 通过，无需数组/包装层适配；maps/registry.json 顶层 {maps:{...}} 与
@@ -20,7 +24,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 
-import { defaultGameContext, type GameContext } from '../gameContext.js'
+import { defaultGameContext, type GameContext, type SchemaRoute } from '../gameContext.js'
 import { sidecarManager } from '../sidecar/manager.js'
 import type { SidecarClient } from '../sidecar/client.js'
 import { sidecarCall } from '../sidecar/errors.js'
@@ -44,6 +48,48 @@ export function routeSchemaKind(relPath: string, context: GameContext = defaultG
       return file.replace(/\.json$/, '')
     }
     return route.kind
+  }
+  return null
+}
+
+/**
+ * 表单模式 schema kind 元数据路由（P5 §1.3）——与上面的**校验路由**分离。
+ *
+ * 这些内容文件在本体整仓校验（loadGameDefinition，即 driver validateWhole）里
+ * 已由对应 zod schema 逐文件消费，但默认 per-file 校验路由表
+ * （context.schemaRoutes）未覆盖它们。之所以不直接并入 routeSchemaKind：
+ * routeSchemaKind 是**校验分发**的数据源——writeFile / validateFile /
+ * applyService 都按它的返回值决定「是否调用 validateFile（zod 终门）」。一旦
+ * 把它扩到这些文件，PUT、POST /validate、apply 会开始对它们做 zod 校验，违反
+ * 计划硬约束「校验逻辑零改动」。故这里只做**纯元数据附加**：仅供 readFile 返回
+ * ConfigFile.schemaKind 以点亮前端表单模式；校验分发仍只认 routeSchemaKind
+ * （这些文件保持不校验、行为不变）。kind 命名与 driver getSchema / `/schemas`
+ * 的 kind 逐一对齐（见 server/sidecar/schemaDescribe.ts 的 KIND_SOURCES）。
+ *
+ * 路径约定来自本体 game.json 的内容目录约定（items/dialogues/quests/behaviors、
+ * maps/entity-rules.json、ecosystems.json、rules/player.json、rules/raid.json）。
+ */
+const FORM_SCHEMA_ROUTES: readonly SchemaRoute[] = [
+  { pattern: '^items\\/[^/]+\\.json$', kind: 'items' },
+  { pattern: '^dialogues\\/[^/]+\\.json$', kind: 'dialogues' },
+  { pattern: '^quests\\/[^/]+\\.json$', kind: 'quests' },
+  { pattern: '^behaviors\\/[^/]+\\.json$', kind: 'behaviors' },
+  { pattern: '^ecosystems\\.json$', kind: 'ecosystems' },
+  { pattern: '^maps\\/entity-rules\\.json$', kind: 'entityRules' },
+  { pattern: '^rules\\/player\\.json$', kind: 'player' },
+  { pattern: '^rules\\/raid\\.json$', kind: 'raid' },
+]
+
+/**
+ * 表单 kind 元数据解析（只读，不参与校验分发）：优先取校验路由 kind（行为与
+ * 扩展前完全一致），未命中再回退 FORM_SCHEMA_ROUTES。仅 readFile 使用。
+ */
+export function routeFormSchemaKind(relPath: string, context: GameContext = defaultGameContext): string | null {
+  const validationKind = routeSchemaKind(relPath, context)
+  if (validationKind !== null) return validationKind
+  const norm = relPath.split(path.sep).join('/')
+  for (const route of FORM_SCHEMA_ROUTES) {
+    if (new RegExp(route.pattern).test(norm)) return route.kind
   }
   return null
 }
@@ -124,7 +170,7 @@ export class ConfigService {
     }
   }
 
-  /** 读文件原文 + schemaKind；不存在抛 404。 */
+  /** 读文件原文 + schemaKind（校验路由优先，未命中回退表单元数据路由）。 */
   async readFile(relInput: string): Promise<{ path: string; content: string; schemaKind: string | null }> {
     const rel = normalizeRel(this.requirePath(relInput))
     const { gameDir } = await this.workspace.requireActiveGameDir()
@@ -135,7 +181,9 @@ export class ConfigService {
     return {
       path: rel,
       content: await fsp.readFile(abs, 'utf8'),
-      schemaKind: routeSchemaKind(rel, this.ctx),
+      // P5 §1.3：仅此处附加表单元数据 kind（readFile 是只读元数据消费方）；
+      // writeFile/validateFile/applyService 的校验分发依旧只用 routeSchemaKind。
+      schemaKind: routeFormSchemaKind(rel, this.ctx),
     }
   }
 

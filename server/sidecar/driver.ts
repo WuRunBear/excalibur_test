@@ -30,7 +30,8 @@
  * 在运行时整体擦除，不产生任何运行时加载；类型层面则让 driver 的框架类型返回值
  * 持续受协议 DTO 结构约束（形状漂移会在编译期暴露）。
  *
- * schema kind 表：configService.ts:49-58 的 SCHEMA_TABLE 完整迁入（8 个 kind）；
+ * schema kind 表：configService.ts:49-58 的 SCHEMA_TABLE 完整迁入；P5 §1.3 起
+ * 再纳入 validateWhole 逐文件消费的 8 个 schema，共 16 个 kind。
  * 平台侧从此不持有任何 zod 对象。未登记 kind → bad_request。
  */
 import crypto from 'node:crypto'
@@ -65,7 +66,15 @@ import {
 import type { MapGeometry } from 'framework'
 import type { MapGenerationConfig } from 'map/generate/types'
 import { ArchetypeSchema } from 'framework/config/schema/ArchetypeSchema'
+import { BehaviorSchema } from 'framework/config/schema/BehaviorSchema'
+import { DialogueRegistrySchema } from 'framework/config/schema/DialogueSchema'
+import { EcosystemsSchema } from 'framework/config/schema/EcosystemsSchema'
+import { ItemKindSchema } from 'framework/config/schema/ItemKindSchema'
 import { MapRegistrySchema } from 'framework/config/schema/MapRegistrySchema'
+import { PlayerRuleSchema } from 'framework/config/schema/PlayerRuleSchema'
+import { QuestRegistrySchema } from 'framework/config/schema/QuestSchema'
+import { RaidRuleSchema } from 'framework/config/schema/RuleSchema'
+import { EntityRulesDocumentSchema } from 'map/evolution/schema'
 // 协议 DTO（T1.1）：纯类型模块，import type 运行时整体擦除（见头注释"类型共享"）。
 import type {
   ExportMapArtifactsResult,
@@ -165,7 +174,9 @@ interface SafeParseLike {
 
 /**
  * 完整 schema kind 表（T1.2 迁入：即 configService.ts:49-58 的 SCHEMA_TABLE；
- * 平台侧从此不持有任何 zod 对象）。8 个 kind，未登记 kind → bad_request。
+ * 平台侧从此不持有任何 zod 对象）。P5 §1.3 起扩为 16 个 kind：新增的 8 个是
+ * 本体 loadGameDefinition（validateWhole）逐文件消费、此前未纳入的 schema。
+ * 未登记 kind → bad_request。
  */
 const SCHEMA_TABLE: Record<string, SafeParseLike> = {
   GameDefinition: GameDefinitionSchema,
@@ -176,6 +187,15 @@ const SCHEMA_TABLE: Record<string, SafeParseLike> = {
   crafting: CraftingRuleSchema,
   daynight: DayNightRuleSchema,
   server: ServerRuleSchema,
+  // P5 §1.3 新增（validateWhole 逐文件消费，此前未纳入）
+  items: ItemKindSchema,
+  dialogues: DialogueRegistrySchema,
+  quests: QuestRegistrySchema,
+  ecosystems: EcosystemsSchema,
+  behaviors: BehaviorSchema,
+  player: PlayerRuleSchema,
+  raid: RaidRuleSchema,
+  entityRules: EntityRulesDocumentSchema,
 }
 
 /** bootstrapFramework 幂等单例（本体自身已幂等，此处再拦一层避免重复副作用）。 */
@@ -314,7 +334,7 @@ async function listRegistries(): Promise<ListRegistriesResult> {
 
 /**
  * getSchema(kind)：把 SCHEMA_TABLE 中已加载的 zod 实例转 JSON Schema（带 registry
- * description）。无效/未登记 kind → bad_request；对应 SCHEMA_TABLE 的 8 个 kind。
+ * description）。无效/未登记 kind → bad_request；覆盖 SCHEMA_TABLE 的 16 个 kind。
  */
 function getSchema(params: Record<string, unknown>): GetSchemaResult {
   const kind = params.kind

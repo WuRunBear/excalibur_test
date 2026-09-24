@@ -203,11 +203,11 @@ export interface ListRegistriesResult {
 }
 
 // ---------------------------------------------------------------------------
-// getSchema（P1：SCHEMA_TABLE 的 8 个 kind → JSON Schema）
+// getSchema（P1：SCHEMA_TABLE 的 16 个 kind → JSON Schema；P5 §1.3 扩展）
 // ---------------------------------------------------------------------------
 
 export interface GetSchemaParams {
-  /** schema kind（8 个登记 kind 之一；未登记 → bad_request）。 */
+  /** schema kind（登记的 16 个 kind 之一；未登记 → bad_request）。 */
   kind: string
 }
 
@@ -235,7 +235,7 @@ export interface PingResult {
 // validateFile ----------------------------------------------------------------
 
 export interface ValidateFileParams {
-  /** schema kind（8 个登记 kind 之一；未登记 → bad_request）。 */
+  /** schema kind（登记的 16 个 kind 之一；未登记 → bad_request）。 */
   kind: string
   /** 待校验的 JSON 值（平台侧已完成 JSON.parse）。 */
   data: unknown

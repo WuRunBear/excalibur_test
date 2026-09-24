@@ -6,6 +6,7 @@ export { default as SchemaForm } from './SchemaForm.vue'
 export { default as DescriptionHelp } from './DescriptionHelp.vue'
 export { default as RefSelect } from './RefSelect.vue'
 export { default as SystemsPanel } from './SystemsPanel.vue'
+export { default as ComponentsPanel } from './ComponentsPanel.vue'
 export * from './schemaUtils'
 export * from './refSources'
 export type {

@@ -108,7 +108,7 @@
       </div>
     </div>
 
-    <!-- record：无 properties 的 object → 键值行编辑（如 maps 注册表） -->
+    <!-- record：无 properties 的 object → 键值行编辑（如 maps 注册表）；命中 override → 专用面板 -->
     <div
       v-else-if="info.kind === 'record'"
       class="sform-field"
@@ -125,9 +125,28 @@
         >
         <span class="sform-field__title">{{ label }}</span>
         <DescriptionHelp :text="helpText" />
-        <span class="sform-record__count">{{ recordKeys.length }} 项</span>
+        <span
+          v-if="!widgetOverride"
+          class="sform-record__count"
+          >{{ recordKeys.length }} 项</span
+        >
       </div>
-      <div class="sform-record">
+
+      <!-- widget 接管：components record → 注册表 configSchema 驱动的组件面板 -->
+      <ComponentsPanel
+        v-if="widgetOverride?.id === 'components-panel'"
+        :model-value="recordValue"
+        :path="selfPointer"
+        :errors="errors"
+        :disabled="disabled"
+        @change="onWidgetChange"
+        @mutate="onChildMutate"
+      />
+
+      <div
+        v-else
+        class="sform-record"
+      >
         <div
           v-for="key in recordKeys"
           :key="key"
@@ -589,6 +608,7 @@ defineOptions({ name: 'SchemaForm' })
 import { computed, ref } from 'vue'
 
 import DescriptionHelp from './DescriptionHelp.vue'
+import ComponentsPanel from './ComponentsPanel.vue'
 import RefSelect from './RefSelect.vue'
 import SystemsPanel from './SystemsPanel.vue'
 import {
@@ -619,7 +639,8 @@ import type { Discriminator, EnumOption, JsonSchemaNode, SchemaInfo } from './ty
  * number/integer→InputNumber、boolean→switch、enum→select（长枚举可搜索）、
  * array→可增删列表（对象项卡片/标量项行/枚举多选；命中 WIDGET_OVERRIDES 的
  * 节点→专用面板，如 game.json systems[]→SystemsPanel）、object→折叠分组
- * （默认展开第一层）、无 properties 的 object→键值行（键可被键引用源增强）、
+ * （默认展开第一层）、无 properties 的 object→键值行（键可被键引用源增强；
+ * 命中 WIDGET_OVERRIDES 的 record→专用面板，如实体 components→ComponentsPanel）、
  * oneOf+literal 判别→kind 选择器+子表单；无法识别的节点→只读 JSON 提示。
  *
  * 事件协议：内部递归子节点 emit `mutate(pointer, value)`；根实例（无 path）
@@ -772,12 +793,13 @@ const recordKeySource = computed<RefSourceId | null>(() =>
 )
 
 /**
- * widget 接管：数组节点命中 WIDGET_OVERRIDES 且注册表 store 可达时生效；
- * 无注册表环境（pinia 缺失）回落默认数组渲染，保证渲染器可独立挂载。
+ * widget 接管：array / record 节点命中 WIDGET_OVERRIDES 且注册表 store 可达时
+ * 生效；无注册表环境（pinia 缺失）回落默认渲染，保证渲染器可独立挂载。
  */
 const registryAccessible = hasRegistryAccess()
 const widgetOverride = computed<WidgetOverrideRule | null>(() => {
-  if (info.value.kind !== 'array' || !registryAccessible) return null
+  const kind = info.value.kind
+  if ((kind !== 'array' && kind !== 'record') || !registryAccessible) return null
   return matchWidgetOverride(selfPointer.value)
 })
 

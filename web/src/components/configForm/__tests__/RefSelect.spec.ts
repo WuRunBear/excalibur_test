@@ -5,11 +5,7 @@ import ElementPlus from 'element-plus'
 import { createPinia } from 'pinia'
 
 import RefSelect from '../RefSelect.vue'
-import {
-  matchRefKeySource,
-  matchRefSource,
-  matchWidgetOverride,
-} from '../refSources'
+import { matchRefKeySource, matchRefSource, matchWidgetOverride } from '../refSources'
 
 // api/admin 整体 mock（保留原模块其余导出），registries/config-index 均走 mock 数据
 const mocks = vi.hoisted(() => ({
@@ -48,9 +44,7 @@ const CONFIG_INDEX = {
   archetypes: ['boar', 'berry_bush'],
 }
 
-function mountSelect(
-  props: Record<string, unknown>,
-): VueWrapper {
+function mountSelect(props: Record<string, unknown>): VueWrapper {
   return mount(RefSelect, {
     props,
     global: { plugins: [ElementPlus, createPinia()] },
@@ -176,9 +170,9 @@ describe('RefSelect 组件', () => {
     const wrapper = mountSelect({ source: 'items', modelValue: 'berry' })
     await flushPromises()
 
-    const modeButton = Array.from(
-      document.body.querySelectorAll('.refselect__footer button'),
-    ).find((button) => button.textContent?.includes('使用自定义值'))
+    const modeButton = Array.from(document.body.querySelectorAll('.refselect__footer button')).find(
+      (button) => button.textContent?.includes('使用自定义值'),
+    )
     expect(modeButton).toBeTruthy()
     modeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flushPromises()

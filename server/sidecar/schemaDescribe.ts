@@ -66,19 +66,36 @@ function getZod(gameRoot: string): any {
   return z
 }
 
+/** 默认 schema 源目录（GAME_ROOT 相对）；个别 kind 的源在别处（见 entityRules）。 */
+const SCHEMA_DIR = 'framework/config/schema'
+
 /**
- * kind → schema 源文件与根导出名。仅覆盖 SCHEMA_TABLE 的 8 个 kind（plan §1.3
- * 的 M4 扩展留待后续）；未登记的 kind 在 buildSchemaRegistry 中告警跳过。
+ * kind → schema 源文件（GAME_ROOT 相对路径）与根导出名。
+ *
+ * 前 8 个为 SCHEMA_TABLE 既有 kind；P5（plan §1.3）新增后 8 个——它们是
+ * validateWhole（本体 loadGameDefinition 逐文件 parse）消费、但此前不在
+ * SCHEMA_TABLE 的 schema，纳入 getSchema 以点亮前端表单描述。kind 命名与
+ * server 端文件路由（configService 的表单 kind 元数据路由）逐一对齐。
+ * 未登记的 kind 在 buildSchemaRegistry 中告警跳过。
  */
 export const KIND_SOURCES: Record<string, { file: string; exportName: string }> = {
-  GameDefinition: { file: 'GameDefinitionSchema.ts', exportName: 'GameDefinitionSchema' },
-  Archetype: { file: 'ArchetypeSchema.ts', exportName: 'ArchetypeSchema' },
-  MapRegistry: { file: 'MapRegistrySchema.ts', exportName: 'MapRegistrySchema' },
-  combat: { file: 'RuleSchema.ts', exportName: 'CombatRuleSchema' },
-  needs: { file: 'RuleSchema.ts', exportName: 'NeedsRuleSchema' },
-  crafting: { file: 'RuleSchema.ts', exportName: 'CraftingRuleSchema' },
-  daynight: { file: 'RuleSchema.ts', exportName: 'DayNightRuleSchema' },
-  server: { file: 'RuleSchema.ts', exportName: 'ServerRuleSchema' },
+  GameDefinition: { file: `${SCHEMA_DIR}/GameDefinitionSchema.ts`, exportName: 'GameDefinitionSchema' },
+  Archetype: { file: `${SCHEMA_DIR}/ArchetypeSchema.ts`, exportName: 'ArchetypeSchema' },
+  MapRegistry: { file: `${SCHEMA_DIR}/MapRegistrySchema.ts`, exportName: 'MapRegistrySchema' },
+  combat: { file: `${SCHEMA_DIR}/RuleSchema.ts`, exportName: 'CombatRuleSchema' },
+  needs: { file: `${SCHEMA_DIR}/RuleSchema.ts`, exportName: 'NeedsRuleSchema' },
+  crafting: { file: `${SCHEMA_DIR}/RuleSchema.ts`, exportName: 'CraftingRuleSchema' },
+  daynight: { file: `${SCHEMA_DIR}/RuleSchema.ts`, exportName: 'DayNightRuleSchema' },
+  server: { file: `${SCHEMA_DIR}/RuleSchema.ts`, exportName: 'ServerRuleSchema' },
+  // P5 §1.3 新增：validateWhole 逐文件消费的 schema（此前未纳入 getSchema）
+  items: { file: `${SCHEMA_DIR}/ItemKindSchema.ts`, exportName: 'ItemKindSchema' },
+  dialogues: { file: `${SCHEMA_DIR}/DialogueSchema.ts`, exportName: 'DialogueRegistrySchema' },
+  quests: { file: `${SCHEMA_DIR}/QuestSchema.ts`, exportName: 'QuestRegistrySchema' },
+  ecosystems: { file: `${SCHEMA_DIR}/EcosystemsSchema.ts`, exportName: 'EcosystemsSchema' },
+  behaviors: { file: `${SCHEMA_DIR}/BehaviorSchema.ts`, exportName: 'BehaviorSchema' },
+  player: { file: `${SCHEMA_DIR}/PlayerRuleSchema.ts`, exportName: 'PlayerRuleSchema' },
+  raid: { file: `${SCHEMA_DIR}/RuleSchema.ts`, exportName: 'RaidRuleSchema' },
+  entityRules: { file: 'framework/map/evolution/schema.ts', exportName: 'EntityRulesDocumentSchema' },
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +212,19 @@ interface AstSchema {
   line?: number
 }
 
-const BASE_METHODS = new Set(['object', 'array', 'record', 'discriminatedUnion', 'union', 'tuple', 'map', 'set', 'lazy'])
+const BASE_METHODS = new Set([
+  'object',
+  'strictObject',
+  'looseObject',
+  'array',
+  'record',
+  'discriminatedUnion',
+  'union',
+  'tuple',
+  'map',
+  'set',
+  'lazy',
+])
 
 function findBaseCall(expr: Expression | undefined): { prop: string; call: CallExpression } | undefined {
   let cur: Node | undefined = expr
@@ -381,7 +410,9 @@ function astFromExpr(
   if (base) {
     const args = base.call.getArguments()
     switch (base.prop) {
-      case 'object': {
+      case 'object':
+      case 'strictObject':
+      case 'looseObject': {
         const arg = args[0]
         if (arg && arg.getKind() === SyntaxKind.ObjectLiteralExpression) {
           return buildObjectAst(arg as any, file, ctx, seen, ownerDocs)
@@ -585,14 +616,25 @@ function pathLabel(pathSegs: (string | number)[]): string {
 // 主入口
 // ---------------------------------------------------------------------------
 
-/** 读取 schema 目录全部 .ts + 建全局变量索引（跨文件标识符解析用）。 */
+/**
+ * 读取 KIND_SOURCES 引用到的全部源目录的 .ts（默认 schema 目录 + 个别 kind 的
+ * 源目录，如 framework/map/evolution）+ 建全局变量索引（跨文件标识符解析用）。
+ */
 function loadProject(gameRoot: string): { project: Project; varIndex: Map<string, { file: SourceFile; decl: VariableDeclaration }> } {
-  const schemaDir = path.join(gameRoot, 'framework', 'config', 'schema')
-  if (!fs.existsSync(schemaDir)) throw new Error(`schema 目录不存在：${schemaDir}`)
-  const project = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true })
-  for (const f of fs.readdirSync(schemaDir).filter((f) => f.endsWith('.ts'))) {
-    project.addSourceFileAtPath(path.join(schemaDir, f))
+  const dirs = new Set<string>()
+  for (const src of Object.values(KIND_SOURCES)) {
+    dirs.add(path.dirname(path.join(gameRoot, src.file)))
   }
+  const project = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true })
+  let added = 0
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue
+    for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+      project.addSourceFileAtPath(path.join(dir, f))
+      added += 1
+    }
+  }
+  if (added === 0) throw new Error(`schema 源目录为空（检查 ${[...dirs].join(', ')}）`)
   const varIndex = new Map<string, { file: SourceFile; decl: VariableDeclaration }>()
   for (const sf of project.getSourceFiles()) {
     for (const decl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
@@ -632,7 +674,7 @@ export function buildSchemaRegistry(
       continue
     }
     try {
-      const file = project.getSourceFileOrThrow(path.join(gameRoot, 'framework', 'config', 'schema', src.file))
+      const file = project.getSourceFileOrThrow(path.join(gameRoot, src.file))
       const decl = file.getVariableDeclarationOrThrow(src.exportName)
       const ctx: AstBuildCtx = {
         project,

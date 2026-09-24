@@ -246,17 +246,18 @@ const metaById = computed<Map<string, SystemEntryMeta>>(() => {
   return map
 })
 
-const metas = computed<Array<{ known: boolean; description?: string; configSchema?: JsonSchemaNode }>>(
-  () =>
-    items.value.map((item) => {
-      const meta = metaById.value.get(entryId(item))
-      if (!meta) return { known: false }
-      return {
-        known: true,
-        description: meta.description,
-        configSchema: meta.configSchema,
-      }
-    }),
+const metas = computed<
+  Array<{ known: boolean; description?: string; configSchema?: JsonSchemaNode }>
+>(() =>
+  items.value.map((item) => {
+    const meta = metaById.value.get(entryId(item))
+    if (!meta) return { known: false }
+    return {
+      known: true,
+      description: meta.description,
+      configSchema: meta.configSchema,
+    }
+  }),
 )
 
 const addableEntries = computed<SystemEntryMeta[]>(() => {
@@ -316,7 +317,8 @@ function setEnabled(index: number, value: string | number | boolean): void {
   const next = cloneJson(items.value) as Record<string, unknown>[]
   const entry = next[index]
   if (!isPlainObject(entry)) return
-  if (value === true) delete entry['enabled'] // 缺省启用
+  if (value === true)
+    delete entry['enabled'] // 缺省启用
   else entry['enabled'] = false
   emit('change', next)
 }

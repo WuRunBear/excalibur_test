@@ -147,9 +147,19 @@ export interface WidgetOverrideRule {
  * 专用 widget 接管表：命中的节点以 widget 替代默认渲染。
  * - systems-panel：game.json systems[]（SystemEnableEntrySchema：
  *   `{ id, enabled?, config? }`）→ SystemsPanel（注册表清单勾选 + config 子表单）。
- *   仅当注册表 store 可达（pinia 环境）时启用；无注册表环境回落默认数组渲染。
+ * - components-panel：实体文件的 components record（ArchetypeSchema.components，
+ *   值为 z.unknown 无结构描述）→ ComponentsPanel（注册表 components 的
+ *   configSchema 驱动子表单）。
+ *
+ * 两者仅当注册表 store 可达（pinia 环境）时启用；无注册表环境回落默认渲染。
+ * 优先级：WIDGET_OVERRIDES > REF_SOURCES（record 键增强）> 默认渲染——同一
+ * 节点只会走一条路径：接管生效时键选择收敛到面板内的注册表下拉，REF_SOURCES
+ * 的键引用仅在回落渲染（无注册表环境）时作为降级增强，不出现双控件竞争。
  */
-export const WIDGET_OVERRIDES: WidgetOverrideRule[] = [{ id: 'systems-panel', pattern: '**/systems' }]
+export const WIDGET_OVERRIDES: WidgetOverrideRule[] = [
+  { id: 'systems-panel', pattern: '**/systems' },
+  { id: 'components-panel', pattern: '**/components' },
+]
 
 /** 数组节点命中的 widget 接管规则；未命中返回 null。 */
 export function matchWidgetOverride(pointer: string): WidgetOverrideRule | null {
@@ -192,40 +202,62 @@ export function hasRegistryAccess(): boolean {
 // 注册表 systems 清单（SystemsPanel 数据源）
 // ---------------------------------------------------------------------------
 
-/** 注册表 systems 条目（宽容归一化后）。 */
-export interface SystemEntryMeta {
+/** 注册表条目元数据（systems / components 通用形状：id + description + configSchema）。 */
+export interface RegistryEntryMeta {
   id: string
   description?: string
   configSchema?: JsonSchemaNode
 }
+
+/** 注册表 systems 条目（宽容归一化后）。 */
+export type SystemEntryMeta = RegistryEntryMeta
+/** 注册表 components 条目（宽容归一化后）。 */
+export type ComponentEntryMeta = RegistryEntryMeta
 
 /** configSchema 宽容校验：非对象（含缺省）视为无 schema。 */
 export function normalizeConfigSchema(value: unknown): JsonSchemaNode | undefined {
   return isPlainObject(value) ? (value as JsonSchemaNode) : undefined
 }
 
+function normalizeEntry(id: string, entry: unknown): RegistryEntryMeta {
+  const source = isPlainObject(entry) ? entry : {}
+  return {
+    id,
+    description: typeof source['description'] === 'string' ? source['description'] : undefined,
+    configSchema: normalizeConfigSchema(source['configSchema']),
+  }
+}
+
+function normalizeSystemEntries(list: RegistriesPayload['systems']): SystemEntryMeta[] {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((entry) => typeof entry.id === 'string' && entry.id.length > 0)
+    .map((entry) => normalizeEntry(entry.id, entry))
+}
+
+function normalizeComponentEntries(map: RegistriesPayload['components']): ComponentEntryMeta[] {
+  if (!isPlainObject(map)) return []
+  return Object.entries(map)
+    .filter(([id]) => typeof id === 'string' && id.length > 0)
+    .map(([id, entry]) => normalizeEntry(id, entry))
+}
+
 /**
- * 注册表 systems 清单（SystemsPanel 用）：挂载时 ensureLoaded 一次（幂等、
- * 失败可重试）；games.epoch 切换由 registry store 自身 reset，经重试/重挂载重取。
+ * 注册表分节数据（systems / components 共用骨架）：挂载时 ensureLoaded 一次
+ * （幂等、失败可重试）；games.epoch 切换由 registry store 自身 reset，
+ * 经重试/重挂载重取。
  */
-export function useSystemsEntries(): {
-  entries: ComputedRef<SystemEntryMeta[]>
+function useRegistrySection<T>(
+  select: (payload: RegistriesPayload) => T,
+  initial: T,
+): {
+  data: ComputedRef<T>
   state: Ref<'loading' | 'ready' | 'error'>
   retry: () => void
 } {
   const store = tryUseRegistryStore()
   const state = ref<'loading' | 'ready' | 'error'>(store ? 'loading' : 'error')
-  const entries = computed<SystemEntryMeta[]>(() => {
-    const systems = store?.data?.systems
-    if (!Array.isArray(systems)) return []
-    return systems
-      .filter((entry) => typeof entry.id === 'string' && entry.id.length > 0)
-      .map((entry) => ({
-        id: entry.id,
-        description: typeof entry.description === 'string' ? entry.description : undefined,
-        configSchema: normalizeConfigSchema(entry.configSchema),
-      }))
-  })
+  const data = computed<T>(() => (store?.data ? select(store.data) : initial))
 
   async function load(): Promise<void> {
     if (!store) return
@@ -244,7 +276,33 @@ export function useSystemsEntries(): {
     })
   }
 
-  return { entries, state, retry: () => void load() }
+  return { data, state, retry: () => void load() }
+}
+
+/** 注册表 systems 清单（SystemsPanel 数据源）。 */
+export function useSystemsEntries(): {
+  entries: ComputedRef<SystemEntryMeta[]>
+  state: Ref<'loading' | 'ready' | 'error'>
+  retry: () => void
+} {
+  const { data, state, retry } = useRegistrySection(
+    (payload) => normalizeSystemEntries(payload.systems),
+    [],
+  )
+  return { entries: data, state, retry }
+}
+
+/** 注册表 components 清单（ComponentsPanel 数据源）。 */
+export function useComponentEntries(): {
+  entries: ComputedRef<ComponentEntryMeta[]>
+  state: Ref<'loading' | 'ready' | 'error'>
+  retry: () => void
+} {
+  const { data, state, retry } = useRegistrySection(
+    (payload) => normalizeComponentEntries(payload.components),
+    [],
+  )
+  return { entries: data, state, retry }
 }
 
 // ---------------------------------------------------------------------------
