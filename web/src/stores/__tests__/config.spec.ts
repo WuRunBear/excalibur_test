@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
 const mocks = vi.hoisted(() => ({
@@ -58,6 +59,7 @@ vi.mock('element-plus', () => ({
 import { AdminApiError } from '@/api/admin'
 import type { ConfigTreeNode } from '@/api/admin'
 import { useConfigStore } from '@/stores/config'
+import { useGamesStore } from '@/stores/games'
 
 const TREE: ConfigTreeNode = {
   name: 'game',
@@ -67,6 +69,14 @@ const TREE: ConfigTreeNode = {
     { name: 'hero.json', path: 'game/hero.json', type: 'file' },
     { name: 'map.json', path: 'game/map.json', type: 'file' },
   ],
+}
+
+/** 规范化序列化口径：2 空格缩进 + 末尾换行。 */
+const pretty = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
+
+/** 便捷：让 fetchConfigFile 返回指定文件。 */
+function stubFile(path: string, content: string, schemaKind: string | null = null): void {
+  mocks.fetchConfigFile.mockResolvedValue({ path, content, schemaKind })
 }
 
 beforeEach(() => {
@@ -101,15 +111,13 @@ describe('useConfigStore', () => {
   })
 
   it('openFile 载入文件并跟踪 dirty', async () => {
-    mocks.fetchConfigFile.mockResolvedValue({
-      path: 'game/hero.json',
-      content: '{"a":1}',
-      schemaKind: 'GameDefinition',
-    })
+    stubFile('game/hero.json', '{"a":1}', 'GameDefinition')
     const store = useConfigStore()
     await store.openFile('game/hero.json')
     expect(store.currentFile?.schemaKind).toBe('GameDefinition')
-    expect(store.draft).toBe('{"a":1}')
+    // JSON 模式：draft 与 draftObj 同步为规范化序列化结果。
+    expect(store.draftObj).toEqual({ a: 1 })
+    expect(store.draft).toBe(pretty({ a: 1 }))
     expect(store.dirty).toBe(false)
     expect(store.isJsonFile(store.currentPath)).toBe(true)
 
@@ -118,11 +126,7 @@ describe('useConfigStore', () => {
   })
 
   it('save 成功后同步基线并刷新工作区改动数', async () => {
-    mocks.fetchConfigFile.mockResolvedValue({
-      path: 'game/hero.json',
-      content: '{"a":1}',
-      schemaKind: null,
-    })
+    stubFile('game/hero.json', '{"a":1}', null)
     mocks.saveConfigFile.mockResolvedValue({ path: 'game/hero.json', valid: true })
     const store = useConfigStore()
     await store.openFile('game/hero.json')
@@ -136,11 +140,7 @@ describe('useConfigStore', () => {
   })
 
   it('save 校验失败返回 invalid 并填充错误面板（不弹错误提示）', async () => {
-    mocks.fetchConfigFile.mockResolvedValue({
-      path: 'game/hero.json',
-      content: '{"a":1}',
-      schemaKind: 'GameDefinition',
-    })
+    stubFile('game/hero.json', '{"a":1}', 'GameDefinition')
     mocks.saveConfigFile.mockRejectedValue(
       new AdminApiError('配置校验未通过', 1, {
         errors: [{ jsonPath: '$.a', message: '缺少必需字段 hp', line: 2 }],
@@ -157,11 +157,7 @@ describe('useConfigStore', () => {
   })
 
   it('save 其他错误提示后端 message', async () => {
-    mocks.fetchConfigFile.mockResolvedValue({
-      path: 'game/hero.json',
-      content: '{}',
-      schemaKind: null,
-    })
+    stubFile('game/hero.json', '{}', null)
     mocks.saveConfigFile.mockRejectedValue(new AdminApiError('未设置活动工作区', 1))
     const store = useConfigStore()
     await store.openFile('game/hero.json')
@@ -177,5 +173,115 @@ describe('useConfigStore', () => {
     const store = useConfigStore()
     await store.validateAll()
     expect(store.validateAllResult).toEqual({ valid: false, message: '2 个文件未通过校验' })
+  })
+
+  // -------------------------------------------------------------------------
+  // 3.3 draft 结构化模型
+  // -------------------------------------------------------------------------
+
+  it('dirty 未变不 dirty、改值 dirty、键序与缩进不敏感', async () => {
+    stubFile('game/hero.json', '{"a":1,"b":2}', 'GameDefinition')
+    const store = useConfigStore()
+    await store.openFile('game/hero.json')
+    expect(store.dirty).toBe(false)
+
+    // 仅重排键 + 改缩进 → 规范化后键序无关，不 dirty。
+    store.setDraft('{\n  "b": 2,\n  "a": 1\n}\n')
+    expect(store.dirty).toBe(false)
+
+    // 改值 → dirty。
+    store.setDraft('{"b":2,"a":9}')
+    expect(store.dirty).toBe(true)
+
+    // 值还原 → 不 dirty。
+    store.setDraft('{"a":1,"b":2}')
+    expect(store.dirty).toBe(false)
+  })
+
+  it('规范化序列化：2 空格缩进 + 末尾换行，已有键保序、新键追加尾部', async () => {
+    stubFile('game/hero.json', '{"a":1,"b":2}', 'GameDefinition')
+    const store = useConfigStore()
+    await store.openFile('game/hero.json')
+    expect(store.draft).toBe('{\n  "a": 1,\n  "b": 2\n}\n')
+
+    // 表单直接改结构化对象：新键追加尾部，已有键保持原顺序。
+    ;(store.draftObj as Record<string, unknown>).c = 3
+    expect(store.draft).toBe('{\n  "a": 1,\n  "b": 2,\n  "c": 3\n}\n')
+
+    // 整体替换对象同样保序。
+    store.draftObj = { z: 1, a: 2 }
+    await nextTick()
+    expect(store.draft).toBe('{\n  "z": 1,\n  "a": 2\n}\n')
+  })
+
+  it('JSON 解析失败 / 非 JSON 文件回落字符串模式', async () => {
+    // 解析失败：draftObj 为空，dirty 走原串直比。
+    stubFile('game/broken.json', '{oops', 'GameDefinition')
+    const store = useConfigStore()
+    await store.openFile('game/broken.json')
+    expect(store.draftObj).toBeNull()
+    expect(store.draft).toBe('{oops')
+    expect(store.dirty).toBe(false)
+    store.setDraft('{oops!')
+    expect(store.dirty).toBe(true)
+
+    // 非 JSON 文本文件：维持纯字符串 + 原串直比。
+    stubFile('game/notes.txt', 'hello world')
+    await store.openFile('game/notes.txt')
+    expect(store.draftObj).toBeNull()
+    expect(store.draft).toBe('hello world')
+    expect(store.dirty).toBe(false)
+    store.setDraft('hello world!')
+    expect(store.dirty).toBe(true)
+
+    // 恰好还原原串 → 不 dirty。
+    store.setDraft('hello world')
+    expect(store.dirty).toBe(false)
+  })
+
+  it('save / validateCurrent 发送规范化序列化结果（字符串模式发原串）', async () => {
+    stubFile('game/hero.json', '{"a":1}', 'GameDefinition')
+    mocks.saveConfigFile.mockResolvedValue({ path: 'game/hero.json', valid: true })
+    mocks.validateConfigFile.mockResolvedValue({
+      schemaKind: 'GameDefinition',
+      valid: true,
+      errors: [],
+    })
+    const store = useConfigStore()
+    await store.openFile('game/hero.json')
+    store.setDraft('{"a":2}')
+
+    await store.validateCurrent()
+    await store.save()
+    expect(mocks.validateConfigFile).toHaveBeenCalledWith('game/hero.json', pretty({ a: 2 }))
+    expect(mocks.saveConfigFile).toHaveBeenCalledWith('game/hero.json', pretty({ a: 2 }))
+
+    // 字符串模式：直接发原串。
+    stubFile('game/notes.txt', 'raw text')
+    mocks.saveConfigFile.mockClear()
+    mocks.validateConfigFile.mockClear()
+    await store.openFile('game/notes.txt')
+    store.setDraft('raw text edited')
+    await store.validateCurrent()
+    await store.save()
+    expect(mocks.validateConfigFile).toHaveBeenCalledWith('game/notes.txt', 'raw text edited')
+    expect(mocks.saveConfigFile).toHaveBeenCalledWith('game/notes.txt', 'raw text edited')
+  })
+
+  it('games.epoch 变更时清空草稿与结构化对象', async () => {
+    stubFile('game/hero.json', '{"a":1}', 'GameDefinition')
+    const store = useConfigStore()
+    await store.openFile('game/hero.json')
+    expect(store.draftObj).not.toBeNull()
+
+    const gamesStore = useGamesStore()
+    gamesStore.epoch += 1
+    await nextTick()
+
+    expect(store.currentFile).toBeNull()
+    expect(store.currentPath).toBeNull()
+    expect(store.draft).toBe('')
+    expect(store.draftObj).toBeNull()
+    expect(store.dirty).toBe(false)
   })
 })

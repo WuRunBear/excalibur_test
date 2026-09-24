@@ -91,6 +91,30 @@
             未校验
           </el-tag>
         </template>
+        <!-- §3.4 表单/源码切换：仅带 schema 且草稿为结构化对象的文件出现 -->
+        <div
+          v-if="formCapable"
+          class="cfg-mode"
+          role="group"
+          aria-label="编辑模式"
+        >
+          <button
+            type="button"
+            class="cfg-mode__btn"
+            :class="{ 'is-active': viewMode === 'form' }"
+            @click="setMode('form')"
+          >
+            表单
+          </button>
+          <button
+            type="button"
+            class="cfg-mode__btn"
+            :class="{ 'is-active': viewMode === 'source' }"
+            @click="setMode('source')"
+          >
+            源码
+          </button>
+        </div>
         <el-button
           size="small"
           text
@@ -150,6 +174,24 @@
       :closable="true"
       @close="configStore.validateAllResult = null"
     />
+
+    <!-- §3.4：schema 拉取失败 → 静默回落源码模式，这里给出可重试的轻提示 -->
+    <el-alert
+      v-if="schemaLoadFailed"
+      class="cfg-alert"
+      type="warning"
+      :closable="false"
+    >
+      <div class="cfg-alert__body">
+        <span>配置 schema 加载失败，已回落源码模式：{{ schemasStore.error }}</span>
+        <el-button
+          size="small"
+          @click="retrySchemaLoad"
+        >
+          重试
+        </el-button>
+      </div>
+    </el-alert>
 
     <!-- 无活动工作区：引导去工作区页 -->
     <el-empty
@@ -227,30 +269,57 @@
           </el-tree>
         </aside>
 
-        <!-- 右：Monaco 编辑器 + 校验错误面板 -->
+        <!-- 右：表单 / Monaco 编辑器 + 校验错误面板 -->
         <section class="cfg-editor">
-          <div
-            ref="editorHost"
-            class="cfg-editor__host"
-          ></div>
+          <div class="cfg-editor__stage">
+            <div
+              ref="editorHost"
+              class="cfg-editor__host"
+            ></div>
 
-          <div
-            v-if="configStore.fileLoading"
-            class="cfg-editor__overlay"
-          >
-            <el-skeleton
-              :rows="6"
-              animated
-            />
-          </div>
-          <div
-            v-else-if="!configStore.currentPath"
-            class="cfg-editor__overlay"
-          >
-            <el-empty
-              description="在左侧选择一个配置文件开始编辑"
-              :image-size="100"
-            />
+            <!-- §3.4 表单模式：SchemaForm 覆盖编辑区（Monaco 常驻挂载，随时切回） -->
+            <div
+              v-if="formPaneVisible"
+              class="cfg-formpane"
+            >
+              <SchemaForm
+                v-if="activeSchema"
+                :schema="activeSchema"
+                :model-value="configStore.draftObj"
+                :errors="formErrors"
+                @update:model-value="onFormUpdate"
+              />
+              <!-- schema 拉取中：轻量骨架占位，避免闪现源码 -->
+              <div
+                v-else
+                class="cfg-formpane__pending"
+              >
+                <el-skeleton
+                  :rows="5"
+                  animated
+                />
+                <span class="cfg-formpane__pending-hint">正在加载配置 schema，表单即将可用…</span>
+              </div>
+            </div>
+
+            <div
+              v-if="configStore.fileLoading"
+              class="cfg-editor__overlay"
+            >
+              <el-skeleton
+                :rows="6"
+                animated
+              />
+            </div>
+            <div
+              v-else-if="!configStore.currentPath"
+              class="cfg-editor__overlay"
+            >
+              <el-empty
+                description="在左侧选择一个配置文件开始编辑"
+                :image-size="100"
+              />
+            </div>
           </div>
 
           <div
@@ -293,20 +362,24 @@
 <script setup lang="ts">
 defineOptions({ name: 'ConfigView' })
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import monaco from '@/utils/monaco'
 import { INSTANCE_STATUS_TEXT } from '@/api/admin'
 import type { ConfigTreeNode, ValidationError } from '@/api/admin'
+import { SchemaForm, pointerJoin } from '@/components/configForm'
+import type { JsonSchemaNode } from '@/components/configForm'
 import { useConfigStore } from '@/stores/config'
 import { useInstanceStore } from '@/stores/instance'
+import { useSchemasStore } from '@/stores/schemas'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 const workspaceStore = useWorkspaceStore()
 const configStore = useConfigStore()
 const instanceStore = useInstanceStore()
+const schemasStore = useSchemasStore()
 const router = useRouter()
 
 const treeProps = { label: 'name', children: 'children' } as const
@@ -319,7 +392,11 @@ onMounted(() => {
   void workspaceStore.ensureLoaded().then(() => {
     // 每次进页强制刷新文件树（期间可能在别的页面切换过工作区）
     void configStore.loadTree()
+    // 工作区就绪后拉取 schema（幂等；失败静默，错误条可重试）
+    ensureSchemasLoaded()
   })
+  // 已有活动工作区时直接拉取（store 内部缓存 + 并发去重）
+  ensureSchemasLoaded()
   // 预览联调入口依赖实例快照（复用 instance store 的 WS 订阅）
   void instanceStore.ensureLoaded()
   window.addEventListener('keydown', onGlobalKeydown)
@@ -343,9 +420,181 @@ watch(
     if (id) {
       configStore.reset()
       void configStore.loadTree()
+      // 跨游戏切换会经 games.epoch 重置 schema 缓存，这里重新拉取
+      ensureSchemasLoaded()
     }
   },
 )
+
+// ---------------------------------------------------------------------------
+// §3.4 表单 / 源码双模式
+//
+// 模式判定：当前文件带 schemaKind、schemas store 已加载对应 schema 且草稿为
+// 结构化对象（draftObj 非空）→ 默认表单模式；其余情况（无 schema 的 JSON、
+// 非 JSON 文件、schema 加载中/失败/无此 kind、根为标量）维持 Monaco 源码模式。
+// 两种模式共享 store 的 draftObj/draft 数据源，切换不丢未保存内容；
+// Monaco 永远可达（顶栏切换 + 错误项点击跳行）。
+// ---------------------------------------------------------------------------
+
+/** 当前视图模式；用户显式选择后（pinned）schema 异步就绪不再抢占。 */
+const viewMode = ref<'form' | 'source'>('source')
+const modePinned = ref(false)
+/** 模式归属的文件路径：打开新文件恢复默认；保存引发的 currentFile 替换不重置。 */
+const modeFilePath = ref<string | null>(null)
+
+const currentSchemaKind = computed(() => configStore.currentFile?.schemaKind ?? null)
+
+/** 表单模式前提：带 schemaKind 的 JSON 文件且草稿已解析为结构化对象。 */
+const formCapable = computed(() => {
+  const file = configStore.currentFile
+  if (file === null || file.schemaKind === null) return false
+  if (configStore.currentPath === null || !configStore.isJsonFile(configStore.currentPath)) {
+    return false
+  }
+  return configStore.draftObj !== null
+})
+
+/**
+ * 当前文件的 JSON Schema。store 的 JsonSchemaValue 与 SchemaForm 的
+ * JsonSchemaNode 是同一份数据的宽容/收敛两侧视图（关键字段结构一致，仅
+ * enum/items 的类型声明宽窄不同），此处收敛为组件入参类型。
+ */
+const currentSchema = computed<JsonSchemaNode | null>(() => {
+  const kind = currentSchemaKind.value
+  if (kind === null) return null
+  const schema = schemasStore.byKind(kind)
+  return schema ? (schema as JsonSchemaNode) : null
+})
+
+/** schema 就绪：表单可渲染。 */
+const formReady = computed(() => formCapable.value && currentSchema.value !== null)
+
+/** schema 拉取中（未就绪也无失败）：表单区给骨架占位而非闪现源码。 */
+const schemaPending = computed(
+  () =>
+    formCapable.value &&
+    currentSchema.value === null &&
+    !schemasStore.loaded &&
+    schemasStore.error === null,
+)
+
+const formPaneVisible = computed(() => viewMode.value === 'form' && formCapable.value)
+
+/** 模板 v-if 收窄用：formReady 时必为非空 schema。 */
+const activeSchema = computed<JsonSchemaNode | null>(() =>
+  formReady.value ? currentSchema.value : null,
+)
+
+/** 当前文件带 schemaKind 且 schema 拉取失败（已回落源码模式）。 */
+const schemaLoadFailed = computed(
+  () => currentSchemaKind.value !== null && schemasStore.error !== null,
+)
+
+/** 幂等拉取 schema：无活动工作区时跳过；store 内部缓存 + 并发去重 + 失败可重试。 */
+function ensureSchemasLoaded(): void {
+  if (!workspaceStore.activeId) return
+  if (schemasStore.loaded || schemasStore.loading) return
+  void schemasStore.load()
+}
+
+function retrySchemaLoad(): void {
+  if (schemasStore.loading) return
+  void schemasStore.load()
+}
+
+// 首个带 schemaKind 的文件打开时兜底拉取：进页时失败（静默）后，
+// 打开 schema 文件即自动重试一次，成功则直接回到默认表单模式。
+watch(currentSchemaKind, (kind) => {
+  if (kind !== null) ensureSchemasLoaded()
+})
+
+// 打开新文件：恢复默认模式（表单可用 → 表单，否则源码）。
+// 保存成功只替换 currentFile 引用、路径不变，不会走到这里（用户模式保留）。
+watch(
+  () => configStore.currentPath,
+  (path) => {
+    if (path === modeFilePath.value) return
+    modeFilePath.value = path
+    modePinned.value = false
+    viewMode.value = formCapable.value ? 'form' : 'source'
+  },
+)
+
+// schema 就绪 / 失效跟随：就绪或拉取中且用户未显式选择 → 表单；
+// 表单被迫失效（加载失败、无此 kind、草稿不再是对象）→ 清掉表单侧选择并回落源码。
+watch([formReady, schemaPending], ([ready, pending]) => {
+  if (ready || pending) {
+    if (!modePinned.value) viewMode.value = 'form'
+    return
+  }
+  if (viewMode.value === 'form') modePinned.value = false
+  viewMode.value = 'source'
+})
+
+function setMode(mode: 'form' | 'source'): void {
+  if (mode === 'form' && !formCapable.value) return
+  modePinned.value = true
+  if (viewMode.value === mode) return
+  viewMode.value = mode
+}
+
+// 切回源码：表单编辑只更新了 store 草稿，Monaco 模型需补一次同步，
+// 否则源码区显示的是打开时的旧内容。
+watch(viewMode, (mode) => {
+  if (mode !== 'source') return
+  const ed = editor
+  const model = ed?.getModel()
+  if (!ed || !model) return
+  if (ed.getValue() !== configStore.draft) ed.setValue(configStore.draft)
+})
+
+/** 表单编辑 → 写回 store 结构化草稿（store 内部同步 draft 字符串与 dirty）。 */
+function onFormUpdate(value: Record<string, unknown>): void {
+  configStore.draftObj = value
+}
+
+/**
+ * 服务端校验错误 jsonPath（属性点连 + 数组 [i]，如 `components[0].kind`，
+ * 根为 `$`）→ RFC 6901 JSON pointer（`/components/0/kind`），供 SchemaForm
+ * 字段命中。根级错误与无法解析的形态返回 null：只留错误面板，不进表单映射。
+ */
+function serverJsonPathToPointer(jsonPath: string): string | null {
+  const text = jsonPath.trim()
+  if (text === '' || text === '$') return null
+  const tokens: string[] = []
+  for (const part of text.split('.')) {
+    const bracket = part.indexOf('[')
+    if (bracket === -1) {
+      if (part !== '') tokens.push(part)
+      continue
+    }
+    const head = part.slice(0, bracket)
+    if (head !== '') tokens.push(head)
+    let rest = part.slice(bracket)
+    while (rest.length > 0) {
+      const match = /^\[(\d+)\]/.exec(rest)
+      if (match === null) return null
+      tokens.push(match[1] as string)
+      rest = rest.slice(match[0].length)
+    }
+  }
+  if (tokens.length === 0) return null
+  let pointer = ''
+  for (const token of tokens) pointer = pointerJoin(pointer, token)
+  return pointer
+}
+
+/** 表单字段错误：JSON pointer → 首条错误文案（无字段级错误时为 undefined）。 */
+const formErrors = computed<Record<string, string> | undefined>(() => {
+  if (configStore.fileErrors.length === 0) return undefined
+  const map: Record<string, string> = {}
+  for (const err of configStore.fileErrors) {
+    const pointer = serverJsonPathToPointer(err.jsonPath)
+    if (pointer === null) continue
+    if (map[pointer] === undefined) map[pointer] = err.message
+  }
+  return Object.keys(map).length > 0 ? map : undefined
+})
 
 // ---------------------------------------------------------------------------
 // Monaco 编辑器
@@ -434,9 +683,15 @@ function applyMarkers(): void {
   monaco.editor.setModelMarkers(model, 'admin-config', markers)
 }
 
-function jumpToError(err: ValidationError): void {
+async function jumpToError(err: ValidationError): Promise<void> {
+  if (typeof err.line !== 'number') return
+  // 表单模式下点错误项：先切源码（Monaco 重新可见），再跳行聚焦
+  if (viewMode.value === 'form') {
+    setMode('source')
+    await nextTick()
+  }
   const ed = editor
-  if (!ed || typeof err.line !== 'number') return
+  if (!ed) return
   ed.revealLineInCenter(err.line)
   ed.setPosition({ lineNumber: err.line, column: 1 })
   ed.focus()
@@ -538,6 +793,10 @@ async function onFormat(): Promise<void> {
   if (!ed || !canFormat.value) return
   const model = ed.getModel()
   if (!model) return
+
+  // 表单模式下 Monaco 内容可能滞后于草稿：先同步再走格式化链，
+  // 否则会拿旧内容格式化后反向覆盖表单编辑。
+  if (ed.getValue() !== configStore.draft) ed.setValue(configStore.draft)
   const before = ed.getValue()
 
   // 优先走 monaco 动作链（JSON worker 格式化）。
@@ -829,9 +1088,106 @@ function onGlobalKeydown(event: KeyboardEvent): void {
   position: relative;
 }
 
+/* 表单/源码共用舞台：Monaco 常驻挂载，表单模式以覆盖层呈现（随时切回） */
+.cfg-editor__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .cfg-editor__host {
   flex: 1;
   min-height: 0;
+}
+
+/* 表单模式容器：与左树同语言的白底卡片内页，可滚动 */
+.cfg-formpane {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow-y: auto;
+  padding: 14px 16px 28px;
+  background: #ffffff;
+  animation: cfg-pane-in 0.18s ease;
+}
+
+@keyframes cfg-pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cfg-formpane {
+    animation: none;
+  }
+}
+
+/* schema 加载中：轻量骨架占位 */
+.cfg-formpane__pending {
+  max-width: 560px;
+  margin: 0 auto;
+  padding-top: 56px;
+}
+
+.cfg-formpane__pending-hint {
+  display: block;
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #9aa3ad;
+}
+
+/* 顶栏「表单 / 源码」分段切换：与小号按钮同高，贴合描边卡片语言 */
+.cfg-mode {
+  display: inline-flex;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid #e2e5ea;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.cfg-mode__btn {
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 22px;
+  color: #6b7280;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.cfg-mode__btn + .cfg-mode__btn {
+  border-left: 1px solid #eef0f2;
+}
+
+.cfg-mode__btn:hover {
+  background: #f7f8f9;
+  color: #26292e;
+}
+
+.cfg-mode__btn:focus-visible {
+  outline: 2px solid var(--el-color-primary-light-5);
+  outline-offset: -2px;
+}
+
+.cfg-mode__btn.is-active {
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  font-weight: 600;
 }
 
 .cfg-editor__overlay {

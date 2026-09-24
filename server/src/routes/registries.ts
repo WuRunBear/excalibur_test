@@ -1,10 +1,12 @@
 /**
  * 注册表 REST 路由（S6-A，挂载于 /api/registries）。
  *
- * GET /api/registries → sidecar 透传五类注册表（T1.5：payload 组装——components
- * 只取键、mapGenerators 取 id 的游戏侧语义裁剪——已移入 driver，路由层不再
- * import gameBridge）。验收基准沿用 = 本体 `pnpm tools list-registries` 输出
- * （数量/条目 id 一致）。
+ * GET /api/registries → sidecar 透传五类注册表（T1.5：payload 组装已移入 driver，
+ * 路由层不再 import gameBridge）。验收基准沿用 = 本体 `pnpm tools list-registries`
+ * 输出（数量/条目 id 一致）。
+ *
+ * P1 扩展：driver 返回的每条目现携带 `description` / `configSchema`（标准 JSON
+ * Schema）元数据；路由层为纯透传，扩展字段原样上线（无字段时缺省，不补 null）。
  */
 import { Router } from 'express'
 import type { Request, Response } from 'express'

@@ -37,6 +37,8 @@ import type {
   BuildMapGeometryParams,
   ExportMapArtifactsParams,
   ExportMapArtifactsResult,
+  GetSchemaParams,
+  GetSchemaResult,
   ListRegistriesResult,
   PingResult,
   SerializedMapGeometry,
@@ -151,6 +153,10 @@ export class SidecarClient {
 
   listRegistries(timeoutMs: number = SIDECAR_TIMEOUT_MS): Promise<ListRegistriesResult> {
     return this.request('listRegistries', {}, timeoutMs)
+  }
+
+  getSchema(params: GetSchemaParams, timeoutMs: number = SIDECAR_TIMEOUT_MS): Promise<GetSchemaResult> {
+    return this.request('getSchema', params, timeoutMs)
   }
 
   validateFile(params: ValidateFileParams, timeoutMs: number = SIDECAR_TIMEOUT_MS): Promise<ValidateFileResult> {

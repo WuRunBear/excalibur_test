@@ -373,6 +373,57 @@ export function extractValidationErrors(detail: unknown): ValidationError[] | nu
 }
 
 // ---------------------------------------------------------------------------
+// Schema 与引用索引（P1）
+// ---------------------------------------------------------------------------
+
+/**
+ * JSON Schema 值（宽容类型，前端表单渲染用）。
+ *
+ * sidecar 经 z.toJSONSchema 输出标准 JSON Schema 子集；这里只声明渲染所需的关键
+ * 关键字，其余字段经索引签名原样透传，**不引入 json-schema 依赖**。
+ */
+export interface JsonSchemaValue {
+  type?: string | string[]
+  title?: string
+  description?: string
+  default?: unknown
+  enum?: unknown[]
+  const?: unknown
+  properties?: Record<string, JsonSchemaValue>
+  required?: string[]
+  items?: JsonSchemaValue | JsonSchemaValue[]
+  additionalProperties?: boolean | JsonSchemaValue
+  oneOf?: JsonSchemaValue[]
+  anyOf?: JsonSchemaValue[]
+  allOf?: JsonSchemaValue[]
+  $ref?: string
+  /** 其余 JSON Schema 关键字（如 examples / format / minimum）：前端不解读，宽容保留。 */
+  [key: string]: unknown
+}
+
+/** GET games/:gameId/schemas → 按 schemaKind 索引的 JSON Schema（一次拉全，前端按 kind 取用）。 */
+export function fetchSchemas(): Promise<Record<string, JsonSchemaValue>> {
+  return request(adminGameUrl('schemas'))
+}
+
+/**
+ * 引用型字段下拉数据索引（来自活动工作区配置本身，服务端按 mtime 缓存）。
+ * 五类 id 列表分别对应配方 kind / 对话 treeId / 任务 id / 地图 key / 原型引用。
+ */
+export interface ConfigIndexPayload {
+  items: string[]
+  dialogues: string[]
+  quests: string[]
+  mapKeys: string[]
+  archetypes: string[]
+}
+
+/** GET games/:gameId/config-index → 引用下拉数据（item / dialogue / quest / mapKey / archetype）。 */
+export function fetchConfigIndex(): Promise<ConfigIndexPayload> {
+  return request(adminGameUrl('config-index'))
+}
+
+// ---------------------------------------------------------------------------
 // 配置上下文（S3-B）
 // ---------------------------------------------------------------------------
 
@@ -659,16 +710,28 @@ export function restoreSave(file: string, scope: SaveScope): Promise<SaveRestore
 // ---------------------------------------------------------------------------
 
 /**
+ * 注册表条目（P1：在既有宽容形状上扩展 description / configSchema 元数据）。
+ * id 为条目标识；description 供展示，configSchema 为该条目所属系统的 config 子
+ * schema（缺省时前端降级源码编辑）。其余本体 register 元数据字段宽容保留。
+ */
+export interface RegistriesEntry {
+  id: string
+  description?: string
+  configSchema?: unknown
+  [key: string]: unknown
+}
+
+/**
  * GET games/:gameId/registries → 五类注册表。
- * 条目形状宽容：systems/archetypes 为对象数组（id 类字段），actions 含 name，
- * components 只取键（值为 null），mapGenerators 为 {id} 数组。
+ * entries 形状：systems/archetypes/actions/mapGenerators 为条目数组，
+ * components 为 id → 条目（无元数据时为 null）的映射。
  */
 export interface RegistriesPayload {
-  systems: unknown
-  archetypes: unknown
-  actions: unknown
-  components: unknown
-  mapGenerators: unknown
+  systems: RegistriesEntry[]
+  archetypes: RegistriesEntry[]
+  actions: RegistriesEntry[]
+  components: Record<string, RegistriesEntry | null>
+  mapGenerators: RegistriesEntry[]
 }
 
 export function fetchRegistries(): Promise<RegistriesPayload> {

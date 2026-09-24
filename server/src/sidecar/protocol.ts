@@ -154,16 +154,32 @@ export type TilePalette = Readonly<Record<number, Rgba>>
 // 注册表 DTO（listRegistries 结果；函数值字段经 JSON 序列化剔除后的线上形状）
 // ---------------------------------------------------------------------------
 
+/**
+ * 注册表条目公共形状（P1 扩展）：id + 可选元数据。configSchema 为
+ * `z.toJSONSchema` 输出的标准 JSON Schema 子集；无元数据时字段缺省。
+ * 其余本体 register 元数据字段（如 systems 的 after/before）宽容保留。
+ */
+export interface RegistriesEntry {
+  id: string
+  /** 功能介绍（编辑器面板展示）。 */
+  description?: string
+  /** 条目参数 JSON Schema（编辑器 config 子表单驱动；缺省前端降级源码）。 */
+  configSchema?: unknown
+  /** 其余未知字段宽容保留（形状漂移不破坏消费方）。 */
+  [key: string]: unknown
+}
+
 /** SystemSpec 的线上形状（factory 函数被 JSON 序列化剔除）。 */
-export interface RegistrySystemSpec {
+export interface RegistrySystemSpec extends RegistriesEntry {
   id: string
   after?: string[]
   before?: string[]
   defaultOrder?: number
 }
 
-/** ArchetypeSpec 的线上形状（全字段 JSON 安全，与本体形状一致）。 */
-export interface RegistryArchetypeSpec {
+/** ArchetypeSpec 的线上形状（全字段 JSON 安全；id=kind 供前端统一按 id 取用）。 */
+export interface RegistryArchetypeSpec extends RegistriesEntry {
+  id: string
   kind: string
   tags?: string[]
   components: Record<string, unknown>
@@ -171,9 +187,9 @@ export interface RegistryArchetypeSpec {
   team?: number
 }
 
-/** ActionEntry 的线上形状（factory 函数被 JSON 序列化剔除）。 */
-export interface RegistryActionEntry {
-  name: string
+/** ActionEntry 的线上形状（factory 函数被 JSON 序列化剔除；id=name）。 */
+export interface RegistryActionEntry extends RegistriesEntry {
+  id: string
 }
 
 /** listRegistries 结果（对齐 server/src/types.ts 的 RegistriesPayload 线上形状）。 */
@@ -181,9 +197,23 @@ export interface ListRegistriesResult {
   systems: RegistrySystemSpec[]
   archetypes: RegistryArchetypeSpec[]
   actions: RegistryActionEntry[]
-  /** 只取键（值置 null，避免巨大输出）。 */
-  components: Record<string, null>
-  mapGenerators: { id: string }[]
+  /** 组件名 → 条目元数据（无元数据为 null；避免不可序列化的组件对象上线路）。 */
+  components: Record<string, RegistriesEntry | null>
+  mapGenerators: RegistriesEntry[]
+}
+
+// ---------------------------------------------------------------------------
+// getSchema（P1：SCHEMA_TABLE 的 8 个 kind → JSON Schema）
+// ---------------------------------------------------------------------------
+
+export interface GetSchemaParams {
+  /** schema kind（8 个登记 kind 之一；未登记 → bad_request）。 */
+  kind: string
+}
+
+export interface GetSchemaResult {
+  /** `z.toJSONSchema(schema, { metadata: registry, reused: "inline" })` 输出。 */
+  jsonSchema: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +290,7 @@ export interface ExportMapArtifactsResult {
 export interface SidecarMethodMap {
   ping: { params: Record<string, never>; result: PingResult }
   listRegistries: { params: Record<string, never>; result: ListRegistriesResult }
+  getSchema: { params: GetSchemaParams; result: GetSchemaResult }
   validateFile: { params: ValidateFileParams; result: ValidateFileResult }
   validateWhole: { params: ValidateWholeParams; result: ValidateWholeResult }
   buildMapGeometry: { params: BuildMapGeometryParams; result: SerializedMapGeometry }

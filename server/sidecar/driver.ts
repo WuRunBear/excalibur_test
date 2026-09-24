@@ -1,5 +1,5 @@
 /**
- * sidecar driver 正式版（T1.2；覆盖全部 6 个 RPC 方法）。
+ * sidecar driver 正式版（T1.2；P1 新增 getSchema，现覆盖 7 个 RPC 方法）。
  *
  * 进程模型：由平台侧以 cwd=<GAME_ROOT>、tsx + 本体 tsconfig spawn 的常驻子进程。
  * 协议（docs/multi-game-plan.md §0.2）：
@@ -39,12 +39,12 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import * as readline from 'node:readline'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   listRegisteredActions,
   listRegisteredArchetypes,
-  listRegisteredComponents,
+  listRegisteredComponentEntries,
   listRegisteredMapGenerators,
   listRegisteredSystems,
 } from 'framework/api'
@@ -69,12 +69,16 @@ import { MapRegistrySchema } from 'framework/config/schema/MapRegistrySchema'
 // 协议 DTO（T1.1）：纯类型模块，import type 运行时整体擦除（见头注释"类型共享"）。
 import type {
   ExportMapArtifactsResult,
+  GetSchemaResult,
   ListRegistriesResult,
   PingResult,
+  RegistriesEntry,
   SerializedMapGeometry,
   TilePalette,
   ValidateFileResult,
 } from '../src/sidecar/protocol.js'
+// schema 描述注册表（相对路径，无别名依赖；ts-morph 从 excalibur_test 根解析）。
+import { buildSchemaRegistry, schemaToJson } from './schemaDescribe.js'
 
 // ---------------------------------------------------------------------------
 // stdout 纪律与诊断输出（必须先于任何请求处理安装）
@@ -183,6 +187,73 @@ function ensureBootstrap(): void {
 }
 
 /**
+ * A5-2：加载本体 `src/register.ts`（游戏自定义扩展注册入口）。
+ *
+ * driver 现有静态 import 只覆盖 framework 内置注册；本体把游戏专属 register*
+ * 调用集中写在 src/register.ts，并在 src/main.ts 最先 import。这里用绝对
+ * file URL 动态 import（等价"同一 tsx 加载器 + 本体 tsconfig"机制；register.ts
+ * 内部的 `framework/*` 别名由 tsx 按 GAME_ROOT tsconfig 解析），副作用即完成
+ * 注册。放在 stdout 纪律补丁安装之后、bootstrap 之前，避免加载期日志漏进协议帧。
+ * 文件缺失或注册抛错只告警，不阻断 driver 启动（降级为仅内置注册）。
+ */
+let gameRegistrationsLoaded: Promise<void> | null = null
+function ensureGameRegistrations(): Promise<void> {
+  if (!gameRegistrationsLoaded) {
+    gameRegistrationsLoaded = (async () => {
+      const registerPath = path.join(GAME_ROOT, 'src', 'register.ts')
+      if (!fs.existsSync(registerPath)) {
+        diag(`无本体 src/register.ts，跳过游戏自定义注册（${registerPath}）`)
+        return
+      }
+      try {
+        await import(pathToFileURL(registerPath).href)
+        diag('已加载本体 src/register.ts（游戏自定义扩展注册）')
+      } catch (err) {
+        diag(`加载本体 src/register.ts 失败（降级为仅内置注册）：${err instanceof Error ? err.message : String(err)}`)
+      }
+    })()
+  }
+  return gameRegistrationsLoaded
+}
+
+/**
+ * schema 描述注册表（P1）：SCHEMA_TABLE 装配完成后惰性构建一次并缓存。
+ * 构建失败（ts-morph 缺失/源不可读等）置 null，getSchema/listRegistries 降级为
+ * 无 description 的 JSON Schema（仍可用），不阻断 driver。
+ */
+let schemaRegistry: unknown = null
+let schemaRegistryBuilt = false
+function getSchemaRegistry(): unknown {
+  if (schemaRegistryBuilt) return schemaRegistry
+  schemaRegistryBuilt = true
+  try {
+    schemaRegistry = buildSchemaRegistry(SCHEMA_TABLE, { onWarn: (m) => diag(`[schemaDescribe] ${m}`) })
+    diag('schema 描述注册表构建完成')
+  } catch (err) {
+    schemaRegistry = null
+    diag(`schema 描述注册表构建失败（降级为无 description）：${err instanceof Error ? err.message : String(err)}`)
+  }
+  return schemaRegistry
+}
+
+/** 注册条目元数据透传（description + configSchema→JSON Schema；无则字段缺省）。 */
+function entryMeta(entry: { description?: string; configSchema?: unknown }): {
+  description?: string
+  configSchema?: unknown
+} {
+  const out: { description?: string; configSchema?: unknown } = {}
+  if (typeof entry.description === 'string' && entry.description.length > 0) out.description = entry.description
+  if (entry.configSchema) {
+    try {
+      out.configSchema = schemaToJson(entry.configSchema, getSchemaRegistry())
+    } catch (err) {
+      diag(`configSchema 转 JSON Schema 失败（忽略该字段）：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  return out
+}
+
+/**
  * ping：zod 版本 + framework 自检（门面关键导出可用性；不触发 bootstrap，
  * 保持 spawn→pong 冷启延迟不受 bootstrap 开销影响）。
  */
@@ -204,18 +275,55 @@ function ping(): PingResult {
   }
 }
 
-/** 复刻 server/src/routes/registries.ts:25-37 的 payload 组装（游戏侧语义入 driver）。 */
-function listRegistries(): ListRegistriesResult {
+/**
+ * 复刻 server/src/routes/registries.ts 的 payload 组装（游戏侧语义入 driver）。
+ * P1 扩展：每条目透传 description / configSchema 元数据（configSchema 经
+ * schemaToJson 转标准 JSON Schema）；无元数据时字段缺省，components 无元数据为 null。
+ * 先 await 本体 src/register.ts 副作用注册，确保 src 自定义扩展进入注册表。
+ */
+async function listRegistries(): Promise<ListRegistriesResult> {
+  await ensureGameRegistrations()
   ensureBootstrap()
-  return {
-    systems: listRegisteredSystems(),
-    archetypes: listRegisteredArchetypes(),
-    actions: listRegisteredActions(),
-    components: Object.fromEntries(
-      Object.keys(listRegisteredComponents()).map((k) => [k, null]),
-    ) as Record<string, null>,
-    mapGenerators: listRegisteredMapGenerators().map((g) => ({ id: g.id })),
+  const components: Record<string, RegistriesEntry | null> = {}
+  for (const entry of listRegisteredComponentEntries()) {
+    const meta = entryMeta(entry)
+    components[entry.name] = Object.keys(meta).length > 0 ? { id: entry.name, ...meta } : null
   }
+  return {
+    systems: listRegisteredSystems().map((s) => ({
+      id: s.id,
+      ...(s.after ? { after: s.after } : {}),
+      ...(s.before ? { before: s.before } : {}),
+      ...(s.defaultOrder !== undefined ? { defaultOrder: s.defaultOrder } : {}),
+      ...entryMeta(s),
+    })),
+    archetypes: listRegisteredArchetypes().map((s) => ({
+      id: s.kind,
+      kind: s.kind,
+      ...(s.tags ? { tags: s.tags } : {}),
+      components: s.components,
+      ...(s.behavior ? { behavior: s.behavior } : {}),
+      ...(s.team !== undefined ? { team: s.team } : {}),
+      ...entryMeta(s),
+    })),
+    actions: listRegisteredActions().map((a) => ({ id: a.name, ...entryMeta(a) })),
+    components,
+    mapGenerators: listRegisteredMapGenerators().map((g) => ({ id: g.id, ...entryMeta(g) })),
+  }
+}
+
+/**
+ * getSchema(kind)：把 SCHEMA_TABLE 中已加载的 zod 实例转 JSON Schema（带 registry
+ * description）。无效/未登记 kind → bad_request；对应 SCHEMA_TABLE 的 8 个 kind。
+ */
+function getSchema(params: Record<string, unknown>): GetSchemaResult {
+  const kind = params.kind
+  if (typeof kind !== 'string' || kind.length === 0) {
+    throw new RpcError('bad_request', 'params.kind 必须为非空字符串')
+  }
+  const schema = SCHEMA_TABLE[kind]
+  if (!schema) throw new RpcError('bad_request', `未登记的 schema kind: ${kind}`)
+  return { jsonSchema: schemaToJson(schema, getSchemaRegistry()) }
 }
 
 /**
@@ -349,6 +457,7 @@ function exportMapArtifactsRpc(params: Record<string, unknown>): ExportMapArtifa
 const methods: Record<string, (params: Record<string, unknown>) => unknown> = {
   ping: () => ping(),
   listRegistries: () => listRegistries(),
+  getSchema,
   validateWhole,
   validateFile,
   buildMapGeometry: buildMapGeometryRpc,

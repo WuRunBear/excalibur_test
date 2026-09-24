@@ -61,6 +61,7 @@ import { invalidateServicesFor } from '../services/index.js'
 import { ConflictError } from '../services/instanceManager.js'
 import { applyRouter, backupsRouter } from './apply.js'
 import { configContextRouter } from './configContext.js'
+import { configIndexRouter } from './configIndex.js'
 import { configsRouter } from './configs.js'
 import { fail, handleError, ok } from './helpers.js'
 import { liveRouter } from './live.js'
@@ -68,6 +69,7 @@ import { mapsRouter } from './maps.js'
 import { processRouter } from './process.js'
 import { registriesRouter } from './registries.js'
 import { savesRouter } from './saves.js'
+import { schemasRouter } from './schemas.js'
 import { workspaceRouter } from './workspace.js'
 
 // ---------------------------------------------------------------------------
@@ -528,6 +530,9 @@ gameScopedRouter.use('/instances', processRouter)
 gameScopedRouter.use('/workspaces', workspaceRouter)
 gameScopedRouter.use('/configs', configsRouter)
 gameScopedRouter.use('/config-context', configContextRouter)
+// P1：配置 schema 与引用下拉索引（只读透传 / 活动工作区抽取；校验链路零改动）
+gameScopedRouter.use('/schemas', schemasRouter)
+gameScopedRouter.use('/config-index', configIndexRouter)
 gameScopedRouter.use('/apply', applyRouter)
 gameScopedRouter.use('/backups', backupsRouter)
 gameScopedRouter.use('/maps', mapsRouter)
