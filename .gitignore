@@ -52,3 +52,4 @@ server/games/*/game.json
 server/games/*/checkout/
 
 web/dist.bak/
+tmp/
